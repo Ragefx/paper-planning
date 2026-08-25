@@ -364,7 +364,7 @@ h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; 
   <div class="card">
     <div class="card-title" id="whChartTitle">Stock evolution</div>
     <div class="chart-box tall"><canvas id="whChart"></canvas></div>
-    <div class="legend-note">Solid line = actual stock from daily snapshots. Dashed = projection using average usage and confirmed arrivals. Dots mark deliveries; hover for order, quantity and supplier.</div>
+    <div class="legend-note">Solid line = actual stock: reported daily snapshots, extended backwards by unwinding the movement history where no snapshot was taken yet. Dashed = projection using average usage and confirmed arrivals. Dots mark deliveries; hover for order, quantity and supplier. Open orders with no confirmed delivery date are excluded from the projection.</div>
   </div>
   <div class="card">
     <div class="card-title">Arrivals this month</div>
@@ -747,7 +747,7 @@ const SCHEMA = {
       { k: 'material', label: 'Material',      req: true,  aliases: ['material', 'material number', 'materialnumber', 'matnr', 'sifra', 'sifra materiala', 'artikel', 'item code', 'part number'] },
       { k: 'plant',    label: 'Plant',         req: true,  aliases: ['plant', 'werk', 'obrat', 'site', 'plnt'] },
       { k: 'qty',      label: 'Quantity',      req: true,  aliases: ['unrestricted', 'unrestricted use', 'unrestricted stock', 'stock', 'zaloga', 'quantity', 'qty', 'menge', 'kolicina', 'total stock', 'valuated stock', 'on hand'] },
-      { k: 'desc',     label: 'Description',   req: false, aliases: ['material description', 'description', 'opis', 'material desc', 'text', 'bezeichnung', 'naziv'] },
+      { k: 'desc',     label: 'Description',   req: false, aliases: ['material description', 'material desc', 'material text', 'short text', 'description', 'opis', 'bezeichnung', 'naziv'] },
       { k: 'unit',     label: 'Unit',          req: false, aliases: ['base unit of measure', 'base unit', 'unit', 'uom', 'enota', 'me', 'meins', 'einheit'] },
       { k: 'date',     label: 'Snapshot date', req: false, aliases: ['date', 'datum', 'snapshot date', 'as of', 'stock date', 'posting date'] },
       { k: 'sloc',     label: 'Storage loc.',  req: false, aliases: ['storage location', 'sloc', 'stge loc', 'lgort', 'skladisce'] },
@@ -761,13 +761,13 @@ const SCHEMA = {
       { k: 'material', label: 'Material',      req: true,  aliases: ['material', 'material number', 'matnr', 'sifra', 'sifra materiala', 'artikel'] },
       { k: 'plant',    label: 'Plant',         req: true,  aliases: ['plant', 'werk', 'obrat', 'site', 'plnt'] },
       { k: 'mvt',      label: 'Movement type', req: true,  aliases: ['movement type', 'mvt', 'mvt type', 'mvmt type', 'bewegungsart', 'bwart', 'vrsta gibanja', 'gibanje', 'move type', 'mt'] },
-      { k: 'qty',      label: 'Quantity',      req: true,  aliases: ['quantity', 'qty', 'quantity in un', 'quantity in unit of entry', 'menge', 'kolicina', 'amount in un'] },
-      { k: 'desc',     label: 'Description',   req: false, aliases: ['material description', 'description', 'opis', 'text', 'naziv', 'bezeichnung'] },
+      { k: 'qty',      label: 'Quantity',      req: true,  aliases: ['qty in unit of entry', 'quantity in unit of entry', 'quantity', 'qty', 'quantity in un', 'menge', 'kolicina', 'amount in un'] },
+      { k: 'desc',     label: 'Description',   req: false, aliases: ['material description', 'material text', 'short text', 'description', 'opis', 'naziv', 'bezeichnung'] },
       { k: 'unit',     label: 'Unit',          req: false, aliases: ['base unit of measure', 'base unit', 'unit', 'uom', 'enota', 'me'] },
       { k: 'doc',      label: 'Material doc.', req: false, aliases: ['material document', 'mat document', 'document number', 'doc no', 'mblnr', 'dokument', 'material doc'] },
-      { k: 'item',     label: 'Doc. item',     req: false, aliases: ['item', 'material doc item', 'doc item', 'line', 'postavka', 'zeile', 'pos'] },
+      { k: 'item',     label: 'Doc. item',     req: false, aliases: ['material doc item', 'mat doc item', 'doc item', 'item', 'line', 'postavka', 'zeile', 'pos'] },
       { k: 'ref',      label: 'Purchase order',req: false, aliases: ['purchase order', 'purchase order no', 'po', 'order', 'reference', 'ebeln', 'narocilo', 'bestellung', 'purchasing document'] },
-      { k: 'partner',  label: 'Supplier',      req: false, aliases: ['vendor', 'supplier', 'dobavitelj', 'lieferant', 'name of vendor', 'customer', 'kupec', 'partner'] },
+      { k: 'partner',  label: 'Supplier',      req: false, aliases: ['goods supplier name', 'name of vendor', 'supplier name', 'vendor name', 'name 1', 'dobavitelj', 'lieferant', 'vendor', 'supplier', 'customer', 'kupec', 'partner'] },
       { k: 'rplant',   label: 'Receiving plant', req: false, aliases: ['receiving plant', 'rec plant', 'issuing plant', 'destination plant', 'plant received', 'umwerk', 'ciljni obrat'] },
     ],
   },
@@ -778,12 +778,12 @@ const SCHEMA = {
       { k: 'po',       label: 'Order number',  req: true,  aliases: ['purchasing document', 'purchase order', 'po number', 'po no', 'order', 'ebeln', 'narocilo', 'bestellung', 'document number'] },
       { k: 'material', label: 'Material',      req: true,  aliases: ['material', 'material number', 'matnr', 'sifra', 'sifra materiala', 'artikel'] },
       { k: 'qty',      label: 'Order quantity',req: true,  aliases: ['order quantity', 'scheduled quantity', 'ordered quantity', 'quantity', 'qty', 'menge', 'kolicina', 'bestellmenge', 'narocena kolicina'] },
-      { k: 'grQty',    label: 'GR quantity',   req: true,  aliases: ['gr quantity', 'quantity received', 'received quantity', 'delivered qty', 'delivered quantity', 'goods receipt qty', 'gr qty', 'prejeta kolicina', 'wareneingangsmenge', 'del qty'] },
-      { k: 'delivery', label: 'Delivery date', req: true,  aliases: ['delivery date', 'deliv date', 'delivery dt', 'datum dobave', 'lieferdatum', 'scheduled delivery', 'stat delivery date', 'item delivery date', 'date'] },
+      { k: 'grQty',    label: 'GR quantity',   req: true,  aliases: ['quantity delivered', 'qty delivered', 'gr quantity', 'quantity received', 'received quantity', 'delivered qty', 'delivered quantity', 'goods receipt qty', 'gr qty', 'prejeta kolicina', 'wareneingangsmenge', 'del qty'] },
+      { k: 'delivery', label: 'Delivery date', req: true,  aliases: ['latest delivery date', 'delivery date', 'deliv date', 'delivery dt', 'datum dobave', 'lieferdatum', 'scheduled delivery', 'stat delivery date', 'item delivery date', 'date'] },
       { k: 'plant',    label: 'Plant',         req: false, aliases: ['plant', 'werk', 'obrat', 'site', 'plnt'] },
       { k: 'item',     label: 'Order item',    req: false, aliases: ['item', 'po item', 'line item', 'postavka', 'pos', 'ebelp'] },
       { k: 'vendor',   label: 'Supplier',      req: false, aliases: ['vendor', 'supplier', 'name of vendor', 'supplier name', 'dobavitelj', 'lieferant', 'customer', 'kupec', 'name 1'] },
-      { k: 'desc',     label: 'Description',   req: false, aliases: ['material description', 'short text', 'description', 'opis', 'text', 'naziv'] },
+      { k: 'desc',     label: 'Description',   req: false, aliases: ['material description', 'short text', 'material text', 'description', 'opis', 'naziv'] },
       { k: 'unit',     label: 'Unit',          req: false, aliases: ['order unit', 'base unit of measure', 'unit', 'uom', 'enota', 'me'] },
     ],
   },
@@ -936,10 +936,19 @@ function pick(row, map, key) {
   return v === '' ? null : v;
 }
 
+// Codes read grade-grammage-width (3300-110-1950). Where the export carries no
+// real description — or repeats the code as its own description — spell that out.
+function describeCode(code) {
+  const m = /^(\d+)-(\d+)-(\d+)$/.exec(code);
+  if (!m) return '';
+  return m[1] + ' · ' + Number(m[2]) + ' g/m² · ' + Number(m[3]) + ' mm';
+}
 function noteMaterial(code, desc, unit) {
   if (!code) return;
   const m = state.materials[code] || { code: code, desc: '', unit: '' };
-  if (desc && !m.desc) m.desc = String(desc).trim();
+  const text = desc === null || desc === undefined ? '' : String(desc).trim();
+  if (text && text !== code && !m.desc) m.desc = text;
+  if (!m.desc) m.desc = describeCode(code);
   if (unit && !m.unit) m.unit = String(unit).trim();
   state.materials[code] = m;
 }
@@ -1020,20 +1029,23 @@ function extractOrders(rows, map, fallbackDate) {
     // Only lines still fully outstanding count as incoming.
     if (grQty === null || Math.abs(grQty) > 0.0001) { closed++; continue; }
     if (qty <= 0) { closed++; continue; }
-    let delivery = dateISO(pick(r, map, 'delivery'));
-    if (!delivery) { delivery = fallbackDate; noDate++; }
+    // A missing delivery date means the supplier has not confirmed one. Inventing
+    // a date would drop the whole quantity onto an arbitrary day, so the line is
+    // kept for the on-order total and left off the arrival timeline instead.
+    const delivery = dateISO(pick(r, map, 'delivery'));
+    if (!delivery) noDate++;
     noteMaterial(code, pick(r, map, 'desc'), pick(r, map, 'unit'));
     out.push({
       po: String(pick(r, map, 'po') || '').trim(),
       item: String(pick(r, map, 'item') || '').trim(),
       code, plant: plantCode(pick(r, map, 'plant')) || PLANT_PROD(),
-      qty, delivery,
+      qty, delivery: delivery || null,
       vendor: String(pick(r, map, 'vendor') || '').trim(),
       unit: String(pick(r, map, 'unit') || '').trim(),
     });
   }
   if (closed) warn.push(closed + ' line(s) already had a goods receipt (or no quantity) and were ignored.');
-  if (noDate) warn.push(noDate + ' line(s) had no delivery date — dated ' + fallbackDate + '.');
+  if (noDate) warn.push(noDate + ' line(s) have no confirmed delivery date. They count towards \u201con order\u201d but are left out of the arrival timeline.');
   return { rows: out, warn };
 }
 
@@ -1087,24 +1099,30 @@ function usageIndex() {
   });
 }
 
-// Average daily usage over a window. `days` may be a number or 'all'.
-// A window of 7 or 30 days looks at the production plant only; 'all' spans both.
+// The window a usage average is taken over. A 7- or 30-day window covers the
+// production plant only; 'all' spans both plants. Crucially the window is
+// clipped to the history actually held: with four days of movements imported,
+// a 30-day average divides by four days, not thirty, or every figure would
+// read low until a month of history had built up.
+function usageWindow(basis) {
+  const to = lastMovementDate();
+  if (!to) return null;
+  const first = firstMovementDate();
+  if (basis === 'all') {
+    return { from: first, to, span: Math.max(1, daysBetween(first, to) + 1), plants: PLANTS(), clipped: false };
+  }
+  const n = Number(basis) || 30;
+  const wanted = addDays(to, -(n - 1));
+  const from = (first && first > wanted) ? first : wanted;
+  return { from, to, span: Math.max(1, daysBetween(from, to) + 1), plants: [PLANT_PROD()], clipped: from !== wanted };
+}
+
 function avgUsage(code, basis) {
   const idx = usageIndex()[code];
   if (!idx) return 0;
-  const last = lastMovementDate();
-  if (!last) return 0;
-  let plants, from, to = last, span;
-  if (basis === 'all') {
-    plants = PLANTS();
-    from = firstMovementDate();
-    span = Math.max(1, daysBetween(from, to) + 1);
-  } else {
-    const n = Number(basis) || 30;
-    plants = [PLANT_PROD()];
-    from = addDays(to, -(n - 1));
-    span = n;
-  }
+  const w = usageWindow(basis);
+  if (!w) return 0;
+  const { plants, from, to, span } = w;
   const daily = [];
   for (let i = 0; i < span; i++) {
     const d = addDays(from, i);
@@ -1128,29 +1146,52 @@ function avgUsage(code, basis) {
 function usageTotal(code, basis) {
   const idx = usageIndex()[code];
   if (!idx) return 0;
-  const last = lastMovementDate();
-  if (!last) return 0;
-  const plants = basis === 'all' ? PLANTS() : [PLANT_PROD()];
-  const from = basis === 'all' ? firstMovementDate() : addDays(last, -(Number(basis) - 1));
+  const w = usageWindow(basis);
+  if (!w) return 0;
   let sum = 0;
-  for (const p of plants) {
+  for (const p of w.plants) {
     const bp = idx[p]; if (!bp) continue;
-    for (const d in bp) if (d >= from && d <= last) sum += bp[d];
+    for (const d in bp) if (d >= w.from && d <= w.to) sum += bp[d];
   }
   return Math.max(0, sum);
+}
+
+// Net signed movement per plant and date, with a rolled-up '__all__' total.
+function netIndex() {
+  return memo('netIdx', () => {
+    const idx = {};
+    for (const m of state.movements) {
+      const byPlant = idx[m.plant] || (idx[m.plant] = {});
+      const byDate = byPlant[m.date] || (byPlant[m.date] = { __all__: 0 });
+      byDate.__all__ += m.qty;
+      byDate[m.code] = (byDate[m.code] || 0) + m.qty;
+    }
+    return idx;
+  });
 }
 
 function openOrders() {
   return memo('openOrders', () => {
     const by = {};
     for (const o of state.orders) (by[o.code] || (by[o.code] = [])).push(o);
-    for (const c in by) by[c].sort((a, b) => a.delivery.localeCompare(b.delivery));
+    for (const c in by) by[c].sort((a, b) =>
+      (a.delivery || '9999').localeCompare(b.delivery || '9999'));
     return by;
   });
 }
 function onOrderQty(code) {
   const list = openOrders()[code];
   return list ? list.reduce((s, o) => s + o.qty, 0) : 0;
+}
+// Open quantity with no confirmed delivery date — counted as on order, but
+// absent from every projection, so it is worth stating out loud.
+function unconfirmedQty(code) {
+  const list = code ? (openOrders()[code] || []) : state.orders;
+  return list.filter(o => !o.delivery).reduce((s, o) => s + o.qty, 0);
+}
+function unconfirmedCount(code) {
+  const list = code ? (openOrders()[code] || []) : state.orders;
+  return list.filter(o => !o.delivery).length;
 }
 
 function allMaterialCodes() {
@@ -1181,6 +1222,16 @@ function materialRows(basis) {
   });
 }
 
+// Says what an average was actually measured over, so a 30-day figure taken
+// from four days of history cannot be mistaken for a settled one.
+function basisNote(basis) {
+  const w = usageWindow(basis);
+  if (!w) return 'no movement history';
+  const who = w.plants.join(' + ');
+  if (basis === 'all') return who + ' · ' + w.span + ' days, from ' + w.from;
+  return who + ' only' + (w.clipped ? ' · only ' + w.span + ' days of history' : '');
+}
+
 function riskLevel(days) {
   if (days === null || days === Infinity) return 'none';
   if (days <= (Number(state.settings.critDays) || 3)) return 'crit';
@@ -1203,6 +1254,7 @@ function project(code, opts) {
   const list = (openOrders()[code] || []).filter(o =>
     scope === 'both' || !o.plant || o.plant === scope || (scope === PLANT_PROD() && !o.plant));
   for (const o of list) {
+    if (!o.delivery) continue;                       // no confirmed date, no place on the curve
     const d = o.delivery < start ? start : o.delivery;
     if (daysBetween(start, d) > days) continue;
     (buckets[d] || (buckets[d] = [])).push({ ...o, overdue: o.delivery < start });
@@ -1330,10 +1382,15 @@ function renderMaterials() {
   document.getElementById('materialsStats').innerHTML = [
     tile('Materials tracked', fmt(rows.length, 0)),
     tile('Stock on hand', fmt(totalStock, 0), PLANT_WH() + ' ' + fmt(rows.reduce((s, r) => s + r.wh, 0), 0) + ' · ' + PLANT_PROD() + ' ' + fmt(rows.reduce((s, r) => s + r.pr, 0), 0)),
-    tile('On order', fmt(totalOrder, 0), state.orders.length + ' open line(s)'),
+    tile('On order', fmt(totalOrder, 0), state.orders.length + ' open line(s)' +
+         (unconfirmedCount() ? ' · ' + fmt(unconfirmedQty(), 0) + ' undated' : '')),
     tile('Critical', fmt(crit, 0), '≤ ' + state.settings.critDays + ' days of cover', crit ? 'danger' : ''),
     tile('Low', fmt(low, 0), '≤ ' + state.settings.lowDays + ' days of cover', low ? 'accent' : ''),
   ].join('');
+
+  const w = usageWindow('all');
+  const thin = w && w.span < 14;
+  document.getElementById('materialsBody').dataset.thin = thin ? '1' : '';
 
   if (filter === 'active')    rows = rows.filter(r => r.total !== 0 || r.ordered !== 0);
   else if (filter === 'risk') rows = rows.filter(r => ['crit', 'warn'].indexOf(riskLevel(r.days)) > -1);
@@ -1385,9 +1442,14 @@ function renderMaterials() {
     '</tr>';
   }).join('');
 
-  host.innerHTML = '<div class="table-wrap"><table><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>' +
+  const thinBanner = thin
+    ? '<div class="banner warn">Only ' + w.span + ' day(s) of movement history imported (' + w.from + ' to ' + w.to +
+      '). Usage averages and every day-of-cover figure below are drawn from that much data, so treat them as provisional ' +
+      'until a few weeks have accumulated.</div>'
+    : '';
+  host.innerHTML = thinBanner + '<div class="table-wrap"><table><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>' +
     '<div class="small" style="margin-top:8px">' + rows.length + ' material(s) shown. Click a row to open its forecast. ' +
-    '“Days left” divides total stock by the selected average usage.</div>';
+    '“Days left” divides total stock by the selected average usage (' + basisNote(basis) + ').</div>';
 
   host.querySelectorAll('th.sortable').forEach(th => th.onclick = () => {
     const f = th.dataset.sort;
@@ -1396,7 +1458,9 @@ function renderMaterials() {
     renderMaterials();
   });
   host.querySelectorAll('tr.clickable').forEach(tr => tr.onclick = () => {
-    document.getElementById('fcMaterial').value = tr.dataset.code;
+    const fc = document.getElementById('fcMaterial');
+    fc.value = tr.dataset.code;
+    fc.dataset.userPicked = '1';
     go('forecast');
   });
 }
@@ -1428,13 +1492,25 @@ function exportMaterialsCSV() {
 // ═══════════════════════════════════════════════════════════
 // PAGE: MATERIAL FORECAST
 // ═══════════════════════════════════════════════════════════
+function mostUrgentCode() {
+  let best = null, bestDays = Infinity;
+  for (const r of materialRows('30')) {
+    if (r.days === null || r.days === Infinity) continue;
+    if (r.days < bestDays) { bestDays = r.days; best = r.code; }
+  }
+  return best;
+}
 function fillMaterialSelect(sel, keepAll) {
   const prev = sel.value;
   const codes = allMaterialCodes();
   const opts = (keepAll ? '<option value="__all__">All materials (total)</option>' : '') +
     codes.map(c => '<option value="' + esc(c) + '">' + esc(materialLabel(c)) + '</option>').join('');
   sel.innerHTML = opts || '<option value="">— no materials imported —</option>';
-  if (prev && (prev === '__all__' || codes.indexOf(prev) > -1)) sel.value = prev;
+  const chosen = sel.dataset.userPicked === '1';
+  const prevValid = prev && (prev === '__all__' || codes.indexOf(prev) > -1);
+  if (chosen && prevValid) sel.value = prev;
+  else if (!keepAll && codes.length) sel.value = mostUrgentCode() || codes[0];
+  else if (prevValid) sel.value = prev;
 }
 
 function renderForecast() {
@@ -1463,10 +1539,11 @@ function renderForecast() {
   statsHost.innerHTML = [
     tile('Current stock', fmt(cur, 0) + (unit ? '<span class="stat-unit">' + esc(unit) + '</span>' : ''),
          PLANT_WH() + ' ' + fmt(currentStock(PLANT_WH())[code] || 0, 0) + ' · ' + PLANT_PROD() + ' ' + fmt(currentStock(PLANT_PROD())[code] || 0, 0)),
-    tile('Avg usage · 7 days', fmt(u7), PLANT_PROD() + ' only'),
-    tile('Avg usage · 30 days', fmt(u30), PLANT_PROD() + ' only'),
-    tile('Avg usage · all time', fmt(uAll), PLANTS().join(' + ') + (firstMovementDate() ? ' · since ' + firstMovementDate() : '')),
-    tile('On order', fmt(ordered, 0), (openOrders()[code] || []).length + ' open line(s)'),
+    tile('Avg usage · 7 days', fmt(u7), basisNote('7')),
+    tile('Avg usage · 30 days', fmt(u30), basisNote('30')),
+    tile('Avg usage · all time', fmt(uAll), basisNote('all')),
+    tile('On order', fmt(ordered, 0), (openOrders()[code] || []).length + ' open line(s)' +
+         (unconfirmedCount(code) ? ' · ' + fmt(unconfirmedQty(code), 0) + ' with no confirmed date' : '')),
     tile('Cover', fmtDays(used > 0 ? cur / used : (cur > 0 ? Infinity : null)) + '<span class="stat-unit">days</span>',
          'at ' + fmt(used) + ' / day', riskLevel(used > 0 ? cur / used : null) === 'crit' ? 'danger' : riskLevel(used > 0 ? cur / used : null) === 'warn' ? 'accent' : ''),
   ].join('');
@@ -1513,13 +1590,13 @@ function renderForecast() {
     ordersHost.innerHTML = '<div class="table-wrap"><table><thead><tr>' +
       '<th>Order</th><th>Item</th><th>Plant</th><th class="num">Quantity</th><th>Delivery</th><th>Days out</th><th>Supplier</th>' +
       '</tr></thead><tbody>' + list.map(o => {
-        const dd = daysBetween(todayISO(), o.delivery);
+        const dd = o.delivery ? daysBetween(todayISO(), o.delivery) : null;
         return '<tr><td class="mono">' + esc(o.po) + '</td><td class="mono muted">' + esc(o.item || '—') + '</td>' +
           '<td><span class="pill ' + (o.plant === PLANT_WH() ? 'si10' : 'si11') + '">' + esc(o.plant) + '</span></td>' +
           '<td class="num">' + fmt(o.qty, 0) + '</td>' +
-          '<td class="mono">' + esc(o.delivery) + '</td>' +
-          '<td class="mono ' + (dd < 0 ? '' : 'muted') + '" style="' + (dd < 0 ? 'color:var(--red)' : '') + '">' +
-            (dd < 0 ? Math.abs(dd) + ' d overdue' : dd === 0 ? 'today' : 'in ' + dd + ' d') + '</td>' +
+          '<td class="mono' + (o.delivery ? '' : ' muted') + '">' + esc(o.delivery || 'not confirmed') + '</td>' +
+          '<td class="mono ' + (dd !== null && dd < 0 ? '' : 'muted') + '" style="' + (dd !== null && dd < 0 ? 'color:var(--red)' : '') + '">' +
+            (dd === null ? '—' : dd < 0 ? Math.abs(dd) + ' d overdue' : dd === 0 ? 'today' : 'in ' + dd + ' d') + '</td>' +
           '<td class="muted">' + esc(o.vendor || '—') + '</td></tr>';
       }).join('') + '</tbody></table></div>';
   }
@@ -1536,20 +1613,44 @@ function renderForecast() {
 // ═══════════════════════════════════════════════════════════
 let whScope = 'both';
 
-// Actual stock for one plant across a date range, carried forward between
-// snapshots. Returns null for dates before the first snapshot.
+function snapValue(plant, date, code) {
+  const snap = (state.stock[plant] || {})[date] || {};
+  return code === '__all__' ? Object.values(snap).reduce((a, b) => a + b, 0) : (snap[code] || 0);
+}
+
+// Actual stock for one plant across a date range.
+//
+// Forward of the first snapshot the reported figures are carried forward.
+// Behind it, stock is reconstructed by unwinding the movements — the stock at
+// the end of a day is the next day's stock minus that next day's net movement.
+// Without this the curve would be blank until a month of daily snapshots had
+// accumulated, even though the movement history to draw it is already there.
+// Reconstruction stops at the first movement on record; earlier is unknown.
 function actualSeries(plant, code, dates) {
   const snaps = snapDates(plant);
   if (!snaps.length) return dates.map(() => null);
+  const first = snaps[0];
+
+  const back = {};
+  const movFirst = firstMovementDate();
+  if (movFirst && dates[0] < first) {
+    const idx = netIndex()[plant] || {};
+    const floor = addDays(movFirst, -1);          // the day before the first movement
+    let v = snapValue(plant, first, code);
+    let cur = first;
+    while (cur > floor && cur > dates[0]) {
+      v -= (idx[cur] && idx[cur][code]) || 0;
+      cur = addDays(cur, -1);
+      back[cur] = v;
+    }
+  }
+
   let si = -1;
   const out = [];
   for (const d of dates) {
     while (si + 1 < snaps.length && snaps[si + 1] <= d) si++;
-    if (si < 0) { out.push(null); continue; }
-    const snap = state.stock[plant][snaps[si]] || {};
-    out.push(code === '__all__'
-      ? Object.values(snap).reduce((a, b) => a + b, 0)
-      : (snap[code] || 0));
+    if (si < 0) { out.push(d in back ? back[d] : null); continue; }
+    out.push(snapValue(plant, snaps[si], code));
   }
   return out;
 }
@@ -1588,6 +1689,7 @@ function renderWarehouse() {
   for (const c of codes) {
     for (const o of (openOrders()[c] || [])) {
       if (whScope !== 'both' && whScope !== 'split' && o.plant && o.plant !== whScope) continue;
+      if (!o.delivery) continue;
       let eff = o.delivery;
       if (monthIsCurrentOrFuture && eff < projStart) eff = projStart;
       if (eff < first || eff > last) continue;
@@ -1666,12 +1768,16 @@ function renderWarehouse() {
   // Stat tiles for the month.
   const monthReceipts = sumMovements(codes, mk, m => MVT[m.mvt].kind === 'receipt');
   const monthUsage = -sumMovements(codes, mk, m => USAGE_MVT.indexOf(m.mvt) > -1);
-  const monthTransfers = sumMovements(codes, mk, m => MVT[m.mvt].kind === 'transfer' && m.plant === PLANT_PROD());
+  const netToProd = sumMovements(codes, mk, m => MVT[m.mvt].kind === 'transfer' && m.plant === PLANT_PROD());
+  const transferDir = netToProd < 0
+    ? PLANT_PROD() + ' → ' + PLANT_WH()
+    : PLANT_WH() + ' → ' + PLANT_PROD();
   const incoming = arrivals.reduce((s, a) => s + a.qty, 0);
   document.getElementById('whStats').innerHTML = [
     tile('Received this month', fmt(monthReceipts, 0), '101 / 102 / 411 postings'),
     tile('Consumed this month', fmt(monthUsage, 0), '251 / 252 postings'),
-    tile('Moved ' + PLANT_WH() + ' → ' + PLANT_PROD(), fmt(monthTransfers, 0), '301 / 302 postings'),
+    tile('Net transfer', fmt(Math.abs(netToProd), 0),
+         netToProd === 0 ? 'no 301 / 302 postings' : transferDir + ' · 301 / 302 postings'),
     tile('Still to arrive', fmt(incoming, 0), arrivals.length + ' delivery date(s)'),
     tile('Projected month end', fmt(lastNonNull(datasets[whScope === 'split' ? 2 : 1].data), 0), 'at ' + fmt(usage) + ' / day'),
   ].join('');
@@ -1787,7 +1893,7 @@ function renderPlanning() {
     seriesByCode[code] = proj;
     const cur = stockScope(code, 'both');
     const incoming = (openOrders()[code] || [])
-      .filter(o => o.delivery <= monthEnd).reduce((s, o) => s + o.qty, 0);
+      .filter(o => o.delivery && o.delivery <= monthEnd).reduce((s, o) => s + o.qty, 0);
     const closing = proj.points[proj.points.length - 1].qty;
     if (proj.stockout && (!firstShort || proj.stockout < firstShort)) firstShort = proj.stockout;
     rows.push({ code, pct, need, daily, cur, incoming, closing, stockout: proj.stockout,
@@ -2298,6 +2404,8 @@ function wire() {
   // Forecast
   ['fcMaterial', 'fcBasis', 'fcDays', 'fcScope'].forEach(id =>
     document.getElementById(id).onchange = renderForecast);
+  document.getElementById('fcMaterial').addEventListener('change', e => { e.target.dataset.userPicked = '1'; });
+  document.getElementById('whMaterial').addEventListener('change', e => { e.target.dataset.userPicked = '1'; });
 
   // Warehouse
   ['whMonth', 'whMaterial', 'whBasis'].forEach(id =>

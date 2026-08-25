@@ -19,7 +19,18 @@ Movement types handled: **101** goods receipt, **102** reversal, **251**
 consumption, **252** reversal, **301/302** plant-to-plant transfer, **411**
 consignment to own stock. Signs are taken from the export when it already
 distinguishes receipts from issues, and derived from the movement type when it
-does not. A 301 carrying a receiving plant is mirrored into that plant.
+does not. Where an export posts a 301 as a single line with a receiving plant,
+it is mirrored into that plant; MB51-style exports that already post both legs
+are used as they are.
+
+Two things the numbers depend on, both handled explicitly:
+
+- **Usage averages are clipped to the history you hold.** With six days of
+  movements imported, a "30-day average" divides by six days, not thirty. Every
+  average states the window it was really measured over.
+- **Open orders with no confirmed delivery date** count towards "on order" but
+  are kept off the arrival timeline, since dating them would drop the whole
+  quantity onto an arbitrary day. The quantity involved is shown alongside.
 
 Plants are configurable. The defaults assume **SI11** is the running plant and
 **SI10** is a warehouse: the 7- and 30-day usage averages use SI11 movements
@@ -33,7 +44,8 @@ only, the all-time average uses both.
   current stock and the 7-day, 30-day and all-time usage averages, plus arrival
   markers carrying order number, quantity and supplier.
 - **Warehouse Movement** — a month at a time: actual stock from the daily
-  snapshots, a dashed projection ahead, optionally split by plant.
+  snapshots, extended backwards by unwinding the movement history for days with
+  no snapshot yet, then a dashed projection ahead. Optionally split by plant.
 - **Production Planning** — enter next month's forecast consumption; it is
   split across materials by their historical usage mix (editable) and run
   forward to show what runs short and when.
@@ -53,7 +65,13 @@ daily exports are safe to upload.
 
 European number formats (`1.234.567,50`) and the `dd.mm.yyyy` date family are
 handled, as are Excel serial dates, SAP trailing-minus quantities and material
-numbers padded with leading zeros.
+numbers padded with leading zeros. Report title rows above the header, and the
+totals row at the bottom, are skipped. Stock exports that list one row per reel
+are aggregated to material and plant.
+
+Where a material code reads grade-grammage-width (`3300-110-1950`) and the
+export carries no real description, it is spelled out as `3300 · 110 g/m² ·
+1950 mm`.
 
 ## Where the data lives
 
