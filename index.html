@@ -1638,6 +1638,14 @@ function unconfirmedQty(code) {
   const list = code ? (openOrders()[code] || []) : state.orders;
   return list.filter(o => !o.delivery).reduce((s, o) => s + o.qty, 0);
 }
+// Open orders whose delivery date has already passed. The projection assumes
+// they land today, which is usually right and occasionally very wrong, so a
+// material leaning on one is marked rather than quietly counted.
+function overdueQty(code) {
+  const t = todayISO();
+  const list = code ? (openOrders()[code] || []) : state.orders;
+  return list.filter(o => o.delivery && o.delivery < t).reduce((s, o) => s + o.qty, 0);
+}
 function unconfirmedCount(code) {
   const list = code ? (openOrders()[code] || []) : state.orders;
   return list.filter(o => !o.delivery).length;
@@ -1656,19 +1664,62 @@ function stockScope(code, scope) {
   return wh + pr;
 }
 
-// One row per material for the overview table.
+const COVER_HORIZON = 90;   // days to look ahead before calling stock "covered"
+
+// Days until this material actually runs out: stock drawn down at the average
+// rate, with each confirmed open order added on the day it is due. This is not
+// stock ÷ usage — a delivery landing before the shortfall pushes the stockout
+// out, and one landing after it does not help at all.
+//
+// Returns { days, capped, noUsage }. `capped` means nothing ran out inside the
+// horizon; `noUsage` means no consumption was recorded, so the question does
+// not apply.
+function coverDays(code, usage) {
+  const total = stockScope(code, 'both');
+  if (!(usage > 0)) return { days: null, capped: false, noUsage: true };
+  if (total <= 0) return { days: 0, capped: false, noUsage: false };
+  const proj = project(code, { days: COVER_HORIZON, scope: 'both', dailyUsage: usage });
+  if (!proj.stockout) return { days: null, capped: true, noUsage: false };
+  return { days: daysBetween(todayISO(), proj.stockout), capped: false, noUsage: false };
+}
+
+// One row per material for the overview table. Memoised per usage basis: this
+// runs a projection for every material and the table re-renders on every
+// keystroke in the search box.
 function materialRows(basis) {
-  const wh = currentStock(PLANT_WH()), pr = currentStock(PLANT_PROD());
-  return allMaterialCodes().map(code => {
-    const qWh = wh[code] || 0, qPr = pr[code] || 0;
-    const total = qWh + qPr;
-    const ordered = onOrderQty(code);
-    const usage = avgUsage(code, basis);
-    const days = usage > 0 ? total / usage : (total > 0 ? Infinity : null);
-    const daysWithOrders = usage > 0 ? (total + ordered) / usage : (total + ordered > 0 ? Infinity : null);
-    return { code, desc: (state.materials[code] || {}).desc || '', unit: unitOf(code),
-             wh: qWh, pr: qPr, total, ordered, usage, days, daysWithOrders };
+  return memo('matRows|' + basis, () => {
+    const wh = currentStock(PLANT_WH()), pr = currentStock(PLANT_PROD());
+    return allMaterialCodes().map(code => {
+      const qWh = wh[code] || 0, qPr = pr[code] || 0;
+      const total = qWh + qPr;
+      const usage = avgUsage(code, basis);
+      const cover = coverDays(code, usage);
+      return {
+        code, desc: (state.materials[code] || {}).desc || '', unit: unitOf(code),
+        wh: qWh, pr: qPr, total,
+        ordered: onOrderQty(code),
+        undated: unconfirmedQty(code),
+        overdue: overdueQty(code),
+        usage,
+        days: cover.days, capped: cover.capped, noUsage: cover.noUsage,
+        // What the cover would be with nothing arriving — the exposure if
+        // every open order slipped.
+        daysNoSupply: usage > 0 ? total / usage : null,
+      };
+    });
   });
+}
+
+// Sort key that keeps "covered" and "no usage" rows below real numbers.
+function coverRank(r) {
+  if (r.noUsage) return Number.MAX_VALUE;
+  if (r.capped) return Number.MAX_VALUE - 1;
+  return r.days;
+}
+function fmtCover(r) {
+  if (r.noUsage) return '—';
+  if (r.capped) return '> ' + COVER_HORIZON;
+  return String(Math.round(r.days));
 }
 
 // Says what an average was actually measured over, so a 30-day figure taken
@@ -1682,11 +1733,12 @@ function basisNote(basis) {
 }
 
 function riskLevel(days) {
-  if (days === null || days === Infinity) return 'none';
+  if (days === null || days === undefined || !isFinite(days)) return 'none';
   if (days <= (Number(state.settings.critDays) || 3)) return 'crit';
   if (days <= (Number(state.settings.lowDays) || 7)) return 'warn';
   return 'ok';
 }
+function rowRisk(r) { return (r.noUsage || r.capped) ? 'none' : riskLevel(r.days); }
 
 // ── Projection ───────────────────────────────────────────────
 // Walks forward day by day from `start`, subtracting usage and adding the
@@ -1807,8 +1859,8 @@ const MAT_COLS = [
   { k: 'total',   label: 'Total',      cls: 'num' },
   { k: 'ordered', label: 'On order',   cls: 'num' },
   { k: 'usage',   label: 'Avg / day',  cls: 'num' },
-  { k: 'days',    label: 'Days left',  cls: 'num' },
-  { k: 'daysWithOrders', label: 'Days incl. orders', cls: 'num' },
+  { k: 'days',    label: 'Days to stockout', cls: 'num' },
+  { k: 'daysNoSupply', label: 'Cover w/o deliveries', cls: 'num' },
 ];
 
 function renderMaterials() {
@@ -1826,8 +1878,8 @@ function renderMaterials() {
   // Stat tiles reflect the whole catalogue, before search/filter narrowing.
   const totalStock = rows.reduce((s, r) => s + r.total, 0);
   const totalOrder = rows.reduce((s, r) => s + r.ordered, 0);
-  const crit = rows.filter(r => riskLevel(r.days) === 'crit').length;
-  const low  = rows.filter(r => riskLevel(r.days) === 'warn').length;
+  const crit = rows.filter(r => rowRisk(r) === 'crit').length;
+  const low  = rows.filter(r => rowRisk(r) === 'warn').length;
   document.getElementById('materialsStats').innerHTML = [
     tile('Materials tracked', fmt(rows.length, 0)),
     tile('Stock on hand', fmt(totalStock, 0), PLANT_WH() + ' ' + fmt(rows.reduce((s, r) => s + r.wh, 0), 0) + ' · ' + PLANT_PROD() + ' ' + fmt(rows.reduce((s, r) => s + r.pr, 0), 0)),
@@ -1842,17 +1894,17 @@ function renderMaterials() {
   document.getElementById('materialsBody').dataset.thin = thin ? '1' : '';
 
   if (filter === 'active')    rows = rows.filter(r => r.total !== 0 || r.ordered !== 0);
-  else if (filter === 'risk') rows = rows.filter(r => ['crit', 'warn'].indexOf(riskLevel(r.days)) > -1);
+  else if (filter === 'risk') rows = rows.filter(r => ['crit', 'warn'].indexOf(rowRisk(r)) > -1);
   else if (filter === 'zero') rows = rows.filter(r => r.total === 0);
   if (q) rows = rows.filter(r => r.code.toLowerCase().includes(q) || r.desc.toLowerCase().includes(q));
 
   const dir = matSort.dir === 'asc' ? 1 : -1;
   rows.sort((a, b) => {
     let x = a[matSort.field], y = b[matSort.field];
-    if (matSort.field === 'days' || matSort.field === 'daysWithOrders') {
-      // Nothing-to-run-out and no-usage rows sort last either way.
-      x = x === null ? Number.MAX_VALUE : (x === Infinity ? Number.MAX_VALUE - 1 : x);
-      y = y === null ? Number.MAX_VALUE : (y === Infinity ? Number.MAX_VALUE - 1 : y);
+    if (matSort.field === 'days') { x = coverRank(a); y = coverRank(b); }
+    else if (matSort.field === 'daysNoSupply') {
+      x = x === null ? Number.MAX_VALUE : x;
+      y = y === null ? Number.MAX_VALUE : y;
     }
     if (typeof x === 'string') return x.localeCompare(y, undefined, { numeric: true }) * dir;
     return ((x || 0) - (y || 0)) * dir;
@@ -1874,20 +1926,33 @@ function renderMaterials() {
 
   const maxDays = 30;
   const body = rows.map(r => {
-    const lvl = riskLevel(r.days);
+    const lvl = rowRisk(r);
     const col = lvl === 'crit' ? 'var(--red)' : lvl === 'warn' ? 'var(--amber)' : 'var(--green)';
-    const pct = r.days === null ? 0 : Math.min(100, (r.days === Infinity ? maxDays : r.days) / maxDays * 100);
+    const pct = (r.noUsage || r.days === null) ? (r.capped ? 100 : 0)
+              : Math.min(100, r.days / maxDays * 100);
+    // Where deliveries are what keeps a material alive, say so — the gap
+    // between the two columns is the exposure if an order slips.
+    const propped = !r.noUsage && r.daysNoSupply !== null &&
+                    (r.capped || r.days > r.daysNoSupply + 0.5);
+    const notes = [];
+    if (r.undated) notes.push(fmt(r.undated, 0) + ' has no confirmed delivery date and is left out of the projection');
+    if (r.overdue) notes.push(fmt(r.overdue, 0) + ' is past its delivery date and is assumed to arrive today');
+    const orderTitle = notes.join('. ');
+    const marks = (r.undated ? '*' : '') + (r.overdue ? '!' : '');
     return '<tr class="clickable" data-code="' + esc(r.code) + '">' +
       '<td class="mono">' + esc(r.code) + '</td>' +
       '<td class="desc-cell">' + esc(r.desc || '—') + '</td>' +
       '<td class="num' + (r.wh ? '' : ' muted') + '">' + fmt(r.wh, 0) + '</td>' +
       '<td class="num' + (r.pr ? '' : ' muted') + '">' + fmt(r.pr, 0) + '</td>' +
       '<td class="num"><strong>' + fmt(r.total, 0) + '</strong>' + (r.unit ? ' <span class="muted" style="font-size:10px">' + esc(r.unit) + '</span>' : '') + '</td>' +
-      '<td class="num' + (r.ordered ? '' : ' muted') + '">' + (r.ordered ? fmt(r.ordered, 0) : '—') + '</td>' +
+      '<td class="num' + (r.ordered ? '' : ' muted') + '"' + (orderTitle ? ' title="' + esc(orderTitle) + '"' : '') + '>' +
+        (r.ordered ? fmt(r.ordered, 0) + (marks ? ' <span style="font-size:10px;color:' +
+          (r.overdue ? 'var(--red)' : 'var(--text-2)') + '">' + marks + '</span>' : '') : '—') + '</td>' +
       '<td class="num">' + (r.usage ? fmt(r.usage) : '<span class="muted">—</span>') + '</td>' +
       '<td class="num"><div class="days-bar"><div class="days-track"><div class="days-fill" style="width:' + pct + '%;background:' + col + '"></div></div>' +
-        '<span style="color:' + (lvl === 'none' ? 'var(--text-2)' : col) + '">' + fmtDays(r.days) + '</span></div></td>' +
-      '<td class="num muted">' + fmtDays(r.daysWithOrders) + '</td>' +
+        '<span style="color:' + (lvl === 'none' ? 'var(--text-2)' : col) + '">' + fmtCover(r) + '</span></div></td>' +
+      '<td class="num muted"' + (propped ? ' title="Deliveries are what close this gap"' : '') + '>' +
+        (r.daysNoSupply === null ? '—' : fmtDays(r.daysNoSupply)) + (propped ? ' <span style="color:var(--blue)">↑</span>' : '') + '</td>' +
     '</tr>';
   }).join('');
 
@@ -1898,7 +1963,13 @@ function renderMaterials() {
     : '';
   host.innerHTML = thinBanner + '<div class="table-wrap"><table><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>' +
     '<div class="small" style="margin-top:8px">' + rows.length + ' material(s) shown. Click a row to open its forecast. ' +
-    '“Days left” divides total stock by the selected average usage (' + basisNote(basis) + ').</div>';
+    '<strong>Days to stockout</strong> runs stock forward at ' + basisNote(basis) +
+    ', adding each open order on its confirmed delivery date; <strong>' + COVER_HORIZON +
+    '</strong> days is as far as it looks. <strong>Cover w/o deliveries</strong> is the same stock with nothing arriving — ' +
+    'a ↑ marks materials that only get through on a delivery landing in time. ' +
+    '<strong>*</strong> marks quantities on order with no confirmed date, which cannot be projected; ' +
+    '<strong style="color:var(--red)">!</strong> marks orders already past their delivery date, which the projection ' +
+    'assumes arrive today — chase those before trusting the number.</div>';
 
   host.querySelectorAll('th.sortable').forEach(th => th.onclick = () => {
     const f = th.dataset.sort;
@@ -1927,13 +1998,14 @@ function emptyState(title, msg) {
 function exportMaterialsCSV() {
   const basis = document.getElementById('matUsageBasis').value;
   const rows = materialRows(basis);
-  const head = ['Material', 'Description', 'Unit', PLANT_WH(), PLANT_PROD(), 'Total', 'On order', 'Avg per day', 'Days left', 'Days incl orders'];
+  const head = ['Material', 'Description', 'Unit', PLANT_WH(), PLANT_PROD(), 'Total', 'On order',
+                'On order undated', 'On order overdue', 'Avg per day', 'Days to stockout', 'Cover without deliveries'];
   const lines = [head.join(';')];
   for (const r of rows) {
     lines.push([r.code, '"' + String(r.desc).replace(/"/g, '""') + '"', r.unit,
-      r.wh, r.pr, r.total, r.ordered, r.usage.toFixed(3),
-      r.days === Infinity ? 'inf' : r.days === null ? '' : r.days.toFixed(1),
-      r.daysWithOrders === Infinity ? 'inf' : r.daysWithOrders === null ? '' : r.daysWithOrders.toFixed(1)].join(';'));
+      r.wh, r.pr, r.total, r.ordered, r.undated, r.overdue, r.usage.toFixed(3),
+      r.noUsage ? '' : r.capped ? '>' + COVER_HORIZON : r.days.toFixed(1),
+      r.daysNoSupply === null ? '' : r.daysNoSupply.toFixed(1)].join(';'));
   }
   download('materials-' + todayISO() + '.csv', lines.join('\n'), 'text/csv');
 }
@@ -1984,6 +2056,10 @@ function renderForecast() {
   const used = basis === '7' ? u7 : basis === 'all' ? uAll : u30;
   const ordered = onOrderQty(code);
 
+  const proj = project(code, { days, scope, dailyUsage: used });
+  const stockoutIn = proj.stockout ? daysBetween(todayISO(), proj.stockout) : null;
+  const bareCover = used > 0 ? cur / used : null;
+
   document.getElementById('fcChartTitle').textContent = materialLabel(code);
   statsHost.innerHTML = [
     tile('Current stock', fmt(cur, 0) + (unit ? '<span class="stat-unit">' + esc(unit) + '</span>' : ''),
@@ -1993,11 +2069,14 @@ function renderForecast() {
     tile('Avg usage · all time', fmt(uAll), basisNote('all')),
     tile('On order', fmt(ordered, 0), (openOrders()[code] || []).length + ' open line(s)' +
          (unconfirmedCount(code) ? ' · ' + fmt(unconfirmedQty(code), 0) + ' with no confirmed date' : '')),
-    tile('Cover', fmtDays(used > 0 ? cur / used : (cur > 0 ? Infinity : null)) + '<span class="stat-unit">days</span>',
-         'at ' + fmt(used) + ' / day', riskLevel(used > 0 ? cur / used : null) === 'crit' ? 'danger' : riskLevel(used > 0 ? cur / used : null) === 'warn' ? 'accent' : ''),
+    tile('Days to stockout',
+         (used <= 0 ? '—' : stockoutIn === null ? '> ' + days : fmtDays(stockoutIn)) + '<span class="stat-unit">days</span>',
+         used <= 0 ? 'no usage recorded'
+           : (stockoutIn === null ? 'covered for the whole ' + days + '-day horizon' : 'runs out ' + proj.stockout) +
+             (bareCover === null ? '' : ' · ' + fmtDays(bareCover) + ' d with nothing arriving'),
+         riskLevel(stockoutIn) === 'crit' ? 'danger' : riskLevel(stockoutIn) === 'warn' ? 'accent' : ''),
   ].join('');
 
-  const proj = project(code, { days, scope, dailyUsage: used });
   const labels = proj.points.map(p => p.date);
   const byDate = {};
   for (const a of proj.arrivals) byDate[a.date] = a;

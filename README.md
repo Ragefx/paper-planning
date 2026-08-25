@@ -38,8 +38,21 @@ only, the all-time average uses both.
 
 ## Views
 
-- **All Materials** — stock per plant, quantity on order, average daily usage
-  and days of cover, sortable, with CSV export.
+- **All Materials** — stock per plant, quantity on order, average daily usage,
+  and two different cover figures, sortable, with CSV export.
+
+  **Days to stockout** is the real answer: stock is run forward day by day at
+  the average rate and each open order is added on the day it is actually due,
+  so a delivery arriving before the shortfall pushes the date out and one
+  arriving after it does not help. It looks 90 days ahead. **Cover without
+  deliveries** is plain stock ÷ usage — the exposure if every order slipped —
+  and a ↑ marks the materials that only get through because something lands in
+  time.
+
+  Two markers sit next to the on-order quantity: `*` for quantity with no
+  confirmed delivery date, which cannot be placed on the timeline, and a red
+  `!` for orders already past their delivery date, which the projection assumes
+  arrive today.
 - **Material Forecast** — projection for one material over 14–90 days, with
   current stock and the 7-day, 30-day and all-time usage averages, plus arrival
   markers carrying order number, quantity and supplier.
