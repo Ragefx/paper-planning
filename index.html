@@ -2170,7 +2170,8 @@ function renderForecast() {
     const undated = unconfirmedQty(code);
     alertHost.innerHTML = '<div class="banner err">Projected to run out <strong>' + when + '</strong>' +
       (out > 0 ? ', on <strong>' + esc(proj.stockout) + '</strong>' : '') +
-      ', drawing ' + fmt(used) + ' per day with open orders counted on their delivery dates.' +
+      ', drawing ' + fmt(used) + (state.settings.usageDays === 'all' ? ' per day' : ' per working day') +
+      ' with open orders counted on their delivery dates.' +
       (undated ? ' A further ' + fmt(undated, 0) + ' is on order with no confirmed date and is not included.' : '') +
       '</div>';
   }
@@ -2347,7 +2348,7 @@ function renderWarehouse() {
     tile('Net transfer', fmt(Math.abs(netToProd), 0),
          netToProd === 0 ? 'no 301 / 302 postings' : transferDir + ' · 301 / 302 postings'),
     tile('Still to arrive', fmt(incoming, 0), arrivals.length + ' delivery date(s)'),
-    tile('Projected month end', fmt(lastNonNull(datasets[whScope === 'split' ? 2 : 1].data), 0), 'at ' + fmt(usage) + ' / day'),
+    tile('Projected month end', fmt(lastNonNull(datasets[whScope === 'split' ? 2 : 1].data), 0), 'at ' + fmt(usage) + (state.settings.usageDays === 'all' ? ' / day' : ' / working day')),
   ].join('');
 
   // Arrivals table.
