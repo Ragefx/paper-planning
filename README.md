@@ -34,6 +34,22 @@ fortnight later, not next week.
 
 Settings has a toggle for sites that run seven days.
 
+### Special stock
+
+A movement carrying a special-stock indicator (`K`, vendor consignment) moves
+stock the stock report does not count. A 411 posts both legs against one
+document — consignment out, own stock in — so counting both nets to zero and
+loses the own-stock gain the snapshot actually shows. Special-stock legs are
+excluded from stock balances and from the reconstructed history; consumption is
+counted whatever the stock type, because it was consumed.
+
+### The all-time usage basis
+
+When the warehouse plant stopped consuming more than a fortnight before the
+latest movement, the all-time average is describing a two-site operation that
+no longer exists. Selecting that basis says so, and names the date production
+there stopped. Use the 7- or 30-day basis for planning.
+
 Two further things the numbers depend on, both handled explicitly:
 
 - **Usage averages are clipped to the history you hold.** With six days of

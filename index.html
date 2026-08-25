@@ -553,6 +553,12 @@ const MVT = {
 };
 const USAGE_MVT = ['251','252'];
 
+// A movement carrying a special-stock indicator (K = vendor consignment) moves
+// stock that the stock report does not count. A 411 posts both legs on one
+// document — the consignment side out, own stock in — so counting both nets to
+// zero and loses the own-stock gain the snapshot actually shows.
+function ownStock(m) { return !m.special; }
+
 const DEFAULTS = {
   plantProd: 'SI11',
   plantWh:   'SI10',
@@ -1230,6 +1236,7 @@ const SCHEMA = {
       { k: 'ref',      label: 'Purchase order',req: false, aliases: ['purchase order', 'purchase order no', 'po', 'order', 'reference', 'ebeln', 'narocilo', 'bestellung', 'purchasing document'] },
       { k: 'partner',  label: 'Supplier',      req: false, aliases: ['goods supplier name', 'name of vendor', 'supplier name', 'vendor name', 'name 1', 'dobavitelj', 'lieferant', 'vendor', 'supplier', 'customer', 'kupec', 'partner'] },
       { k: 'rplant',   label: 'Receiving plant', req: false, aliases: ['receiving plant', 'rec plant', 'issuing plant', 'destination plant', 'plant received', 'umwerk', 'ciljni obrat'] },
+      { k: 'special',  label: 'Special stock', req: false, aliases: ['special stock', 'special stock indicator', 'sobkz', 'stock type', 'konsignacija'] },
     ],
   },
   orders: {
@@ -1461,6 +1468,7 @@ function extractMovements(rows, map, signMode) {
       doc: pick(p.r, map, 'doc') ? String(pick(p.r, map, 'doc')).trim() : '',
       item: pick(p.r, map, 'item') ? String(pick(p.r, map, 'item')).trim() : '',
       ref: pick(p.r, map, 'ref') ? String(pick(p.r, map, 'ref')).trim() : '',
+      special: pick(p.r, map, 'special') ? String(pick(p.r, map, 'special')).trim().toUpperCase() : '',
       partner: pick(p.r, map, 'partner') ? String(pick(p.r, map, 'partner')).trim() : '',
     };
     noteMaterial(p.code, pick(p.r, map, 'desc'), pick(p.r, map, 'unit'));
@@ -1529,6 +1537,28 @@ function latestSnapDate(plant) { const d = snapDates(plant); return d.length ? d
 function currentStock(plant) {
   const d = latestSnapDate(plant);
   return d ? (state.stock[plant][d] || {}) : {};
+}
+
+// The last day a plant actually consumed anything. SI10 is a warehouse now, so
+// an all-time average that still includes its production is describing a site
+// that no longer exists.
+function lastUsageDate(plant) {
+  return memo('lastUsage|' + plant, () => {
+    let max = null;
+    for (const m of state.movements) {
+      if (USAGE_MVT.indexOf(m.mvt) === -1 || m.plant !== plant) continue;
+      if (!max || m.date > max) max = m.date;
+    }
+    return max;
+  });
+}
+// True when the warehouse plant stopped consuming well before the data ends.
+function retiredPlantInAllTime() {
+  const whLast = lastUsageDate(PLANT_WH());
+  const last = lastMovementDate();
+  if (!whLast || !last) return null;
+  const gap = daysBetween(whLast, last);
+  return gap >= 14 ? { plant: PLANT_WH(), until: whLast, gap } : null;
 }
 
 function lastMovementDate() {
@@ -1628,6 +1658,7 @@ function netIndex() {
   return memo('netIdx', () => {
     const idx = {};
     for (const m of state.movements) {
+      if (!ownStock(m)) continue;
       const byPlant = idx[m.plant] || (idx[m.plant] = {});
       const byDate = byPlant[m.date] || (byPlant[m.date] = { __all__: 0 });
       byDate.__all__ += m.qty;
@@ -1746,7 +1777,11 @@ function basisNote(basis) {
   if (!w) return 'no movement history';
   const who = w.plants.join(' + ');
   const unit = state.settings.usageDays === 'all' ? 'per day' : 'per working day';
-  if (basis === 'all') return who + ' · ' + unit + ' over ' + w.workdays + ' of ' + w.span + ' days, from ' + w.from;
+  if (basis === 'all') {
+    const stale = retiredPlantInAllTime();
+    return who + ' · ' + unit + ' over ' + w.workdays + ' of ' + w.span + ' days, from ' + w.from +
+      (stale ? ' · includes ' + stale.plant + ' production, which stopped ' + stale.until : '');
+  }
   return who + ' only · ' + unit + (w.clipped ? ' · only ' + w.span + ' days of history' : '');
 }
 
@@ -1936,8 +1971,22 @@ function renderMaterials() {
   });
 
   const host = document.getElementById('materialsBody');
+  const stale = basis === 'all' ? retiredPlantInAllTime() : null;
+  const staleBanner = stale
+    ? '<div class="banner warn">The all-time basis averages over a period when <strong>' + esc(stale.plant) +
+      '</strong> was still producing — its last consumption was ' + esc(stale.until) + ', ' + stale.gap +
+      ' days before the latest movement. That makes it a record of how the two sites ran together, not a forecast of how ' +
+      esc(PLANT_PROD()) + ' runs now. Use the 7- or 30-day basis for planning.</div>'
+    : '';
+  const thinBanner = thin
+    ? '<div class="banner warn">Only ' + w.span + ' day(s) of movement history imported (' + w.from + ' to ' + w.to +
+      '). Usage averages and every day-of-cover figure below are drawn from that much data, so treat them as provisional ' +
+      'until a few weeks have accumulated.</div>'
+    : '';
+  const banners = staleBanner + thinBanner;
+
   if (!rows.length) {
-    host.innerHTML = emptyState('No materials to show',
+    host.innerHTML = banners + emptyState('No materials to show',
       state.movements.length || Object.keys(state.materials).length
         ? 'Nothing matches the current filter.'
         : 'Import a stock file on the Import tab to get started.');
@@ -1982,12 +2031,7 @@ function renderMaterials() {
     '</tr>';
   }).join('');
 
-  const thinBanner = thin
-    ? '<div class="banner warn">Only ' + w.span + ' day(s) of movement history imported (' + w.from + ' to ' + w.to +
-      '). Usage averages and every day-of-cover figure below are drawn from that much data, so treat them as provisional ' +
-      'until a few weeks have accumulated.</div>'
-    : '';
-  host.innerHTML = thinBanner + '<div class="table-wrap"><table><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>' +
+  host.innerHTML = banners + '<div class="table-wrap"><table><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>' +
     '<div class="small" style="margin-top:8px">' + rows.length + ' material(s) shown. Click a row to open its forecast. ' +
     '<strong>Days to stockout</strong> runs stock forward at ' + basisNote(basis) +
     ', drawing nothing on the days the machines are idle and adding each open order on its confirmed delivery date; ' +
@@ -2335,9 +2379,9 @@ function renderWarehouse() {
   drawChart('whChart', { type: 'line', data: { labels: dates, datasets }, options: opt, plugins: [zeroLine(cssVar('--red'))] });
 
   // Stat tiles for the month.
-  const monthReceipts = sumMovements(codes, mk, m => MVT[m.mvt].kind === 'receipt');
+  const monthReceipts = sumMovements(codes, mk, m => MVT[m.mvt].kind === 'receipt' && ownStock(m));
   const monthUsage = -sumMovements(codes, mk, m => USAGE_MVT.indexOf(m.mvt) > -1);
-  const netToProd = sumMovements(codes, mk, m => MVT[m.mvt].kind === 'transfer' && m.plant === PLANT_PROD());
+  const netToProd = sumMovements(codes, mk, m => MVT[m.mvt].kind === 'transfer' && m.plant === PLANT_PROD() && ownStock(m));
   const transferDir = netToProd < 0
     ? PLANT_PROD() + ' → ' + PLANT_WH()
     : PLANT_WH() + ' → ' + PLANT_PROD();
