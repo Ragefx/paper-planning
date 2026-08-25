@@ -339,6 +339,7 @@ h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; 
     </label>
   </div>
   <div class="stats" id="fcStats"></div>
+  <div id="fcAlert"></div>
   <div class="card">
     <div class="card-title" id="fcChartTitle">Projected stock</div>
     <div class="chart-box tall"><canvas id="fcChart"></canvas></div>
@@ -1677,7 +1678,6 @@ const COVER_HORIZON = 90;   // days to look ahead before calling stock "covered"
 function coverDays(code, usage) {
   const total = stockScope(code, 'both');
   if (!(usage > 0)) return { days: null, capped: false, noUsage: true };
-  if (total <= 0) return { days: 0, capped: false, noUsage: false };
   const proj = project(code, { days: COVER_HORIZON, scope: 'both', dailyUsage: usage });
   if (!proj.stockout) return { days: null, capped: true, noUsage: false };
   return { days: daysBetween(todayISO(), proj.stockout), capped: false, noUsage: false };
@@ -1761,6 +1761,7 @@ function project(code, opts) {
     (buckets[d] || (buckets[d] = [])).push({ ...o, overdue: o.delivery < start });
   }
 
+  const consuming = typeof opts.dailyUsage === 'function' || (opts.dailyUsage || 0) > 0;
   const points = [], arrivals = [];
   let stockout = null;
   for (let i = 0; i <= days; i++) {
@@ -1771,7 +1772,9 @@ function project(code, opts) {
       qty += add;
       arrivals.push({ date, qty: add, orders: buckets[date], level: qty });
     }
-    if (stockout === null && qty < 0) stockout = date;
+    // Day zero is judged after any delivery landing today: nothing in stock and
+    // nothing arriving means out now.
+    if (stockout === null && consuming && (i === 0 ? qty <= 0 : qty < 0)) stockout = date;
     points.push({ date, qty });
   }
   return { points, arrivals, stockout };
@@ -2045,6 +2048,7 @@ function renderForecast() {
 
   if (!code) {
     statsHost.innerHTML = '';
+    document.getElementById('fcAlert').innerHTML = '';
     ordersHost.innerHTML = emptyState('No material selected', 'Import data first, then pick a material here.');
     if (charts.fcChart) { charts.fcChart.destroy(); delete charts.fcChart; }
     return;
@@ -2070,9 +2074,10 @@ function renderForecast() {
     tile('On order', fmt(ordered, 0), (openOrders()[code] || []).length + ' open line(s)' +
          (unconfirmedCount(code) ? ' · ' + fmt(unconfirmedQty(code), 0) + ' with no confirmed date' : '')),
     tile('Days to stockout',
-         (used <= 0 ? '—' : stockoutIn === null ? '> ' + days : fmtDays(stockoutIn)) + '<span class="stat-unit">days</span>',
+         (used <= 0 ? '—' : stockoutIn === null ? '> ' + days : String(Math.round(stockoutIn))) + '<span class="stat-unit">days</span>',
          used <= 0 ? 'no usage recorded'
-           : (stockoutIn === null ? 'covered for the whole ' + days + '-day horizon' : 'runs out ' + proj.stockout) +
+           : (stockoutIn === null ? 'covered for the whole ' + days + '-day horizon'
+              : stockoutIn <= 0 ? 'nothing in stock' : 'runs out ' + proj.stockout) +
              (bareCover === null ? '' : ' · ' + fmtDays(bareCover) + ' d with nothing arriving'),
          riskLevel(stockoutIn) === 'crit' ? 'danger' : riskLevel(stockoutIn) === 'warn' ? 'accent' : ''),
   ].join('');
@@ -2129,10 +2134,20 @@ function renderForecast() {
       }).join('') + '</tbody></table></div>';
   }
 
-  if (proj.stockout) {
-    ordersHost.insertAdjacentHTML('beforebegin',
-      '<div class="banner err" style="margin-bottom:0">Projected to run out on <strong>' + esc(proj.stockout) +
-      '</strong> (' + daysBetween(todayISO(), proj.stockout) + ' days out) at ' + fmt(used) + ' per day, open orders included.</div>');
+  // Written fresh on every render, so it can never outlive the material it
+  // describes — and stays empty when there is nothing to warn about.
+  const alertHost = document.getElementById('fcAlert');
+  if (!proj.stockout) {
+    alertHost.innerHTML = '';
+  } else {
+    const out = daysBetween(todayISO(), proj.stockout);
+    const when = out <= 0 ? 'now — nothing in stock' : out === 1 ? 'tomorrow' : 'in ' + out + ' days';
+    const undated = unconfirmedQty(code);
+    alertHost.innerHTML = '<div class="banner err">Projected to run out <strong>' + when + '</strong>' +
+      (out > 0 ? ', on <strong>' + esc(proj.stockout) + '</strong>' : '') +
+      ', drawing ' + fmt(used) + ' per day with open orders counted on their delivery dates.' +
+      (undated ? ' A further ' + fmt(undated, 0) + ' is on order with no confirmed date and is not included.' : '') +
+      '</div>';
   }
 }
 
