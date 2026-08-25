@@ -234,6 +234,23 @@ tbody tr.clickable { cursor: pointer; }
 .grow { flex: 1; min-width: 160px; }
 .spacer { flex: 1; }
 .small { font-size: 11.5px; color: var(--text-2); line-height: 1.55; }
+.toast-wrap { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 500; }
+.toast {
+  background: var(--bg-1); border: 1px solid var(--border-light); border-left-width: 3px;
+  border-radius: var(--radius); padding: 10px 14px; font-size: 13px; max-width: 340px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.18); animation: toastin .18s ease-out;
+}
+.toast.ok   { border-left-color: var(--green); }
+.toast.err  { border-left-color: var(--red); }
+.toast.info { border-left-color: var(--blue); }
+@keyframes toastin { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.dbx-row { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+.dbx-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-2); flex: none; }
+.dbx-dot.synced { background: var(--green); }
+.dbx-dot.syncing, .dbx-dot.connecting { background: var(--amber); }
+.dbx-dot.error { background: var(--red); }
+code { font-family: var(--font-mono); font-size: 12px; background: var(--bg-2); padding: 1px 5px; border-radius: 3px; }
+ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); line-height: 1.7; }
 h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-2); margin: 18px 0 8px; }
 </style>
 </head>
@@ -251,6 +268,7 @@ h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; 
   </div>
   <div class="header-right">
     <span class="save-indicator" id="saveIndicator">● AUTO-SAVE ON</span>
+    <span class="save-indicator" id="dropboxIndicator" title="Dropbox sync status">○ DROPBOX OFF</span>
     <button class="icon-btn" id="themeBtn" title="Toggle theme">◐</button>
   </div>
 </div>
@@ -489,6 +507,14 @@ h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; 
     <div id="mapEditor"></div>
   </div>
   <div class="card">
+    <div class="card-title">Dropbox sync</div>
+    <div class="small" style="margin-bottom:12px">
+      Keeps the database in a single file in your Dropbox so any computer that connects here works from the same numbers.
+      Uploads are compressed and reconciled against what is already in the cloud, so nothing is silently overwritten.
+    </div>
+    <div id="dropboxSettings"></div>
+  </div>
+  <div class="card">
     <div class="card-title">Data &amp; backup</div>
     <div id="dataStats" class="small" style="margin-bottom:12px"></div>
     <div class="row">
@@ -501,6 +527,8 @@ h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; 
     </div>
   </div>
 </div>
+
+<div class="toast-wrap" id="toasts"></div>
 
 <script>
 // ═══════════════════════════════════════════════════════════
@@ -580,7 +608,7 @@ function saveState(immediate) {
     openDB().then(d => {
       const tx = d.transaction(DB_STORE, 'readwrite');
       tx.objectStore(DB_STORE).put(JSON.parse(JSON.stringify(state)), DB_KEY);
-      tx.oncomplete = () => setSaveIndicator('saved');
+      tx.oncomplete = () => { setSaveIndicator('saved'); Dropbox.scheduleUpload(); };
       tx.onerror = e => { console.error('saveState failed:', e.target.error); setSaveIndicator('error'); };
     }).catch(e => { console.error('openDB failed:', e); setSaveIndicator('error'); });
   };
@@ -606,6 +634,427 @@ function loadState() {
     }).catch(() => resolve());
   });
 }
+
+
+// ═══════════════════════════════════════════════════════════
+// TOASTS
+// ═══════════════════════════════════════════════════════════
+function notify(msg, kind) {
+  const wrap = document.getElementById('toasts');
+  if (!wrap) return;
+  const el = document.createElement('div');
+  el.className = 'toast ' + (kind || 'info');
+  el.textContent = msg;
+  wrap.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 250); }, kind === 'err' ? 7000 : 3500);
+}
+
+// ═══════════════════════════════════════════════════════════
+// MERGE — reconciling two copies of the database
+// ═══════════════════════════════════════════════════════════
+// Two machines can each hold changes the other has not seen. Every part of
+// this database can be reconciled rather than arbitrated: movements are
+// append-only with a natural key, stock snapshots are keyed by plant and date,
+// and the open-order list is a dated snapshot where the later one is simply
+// the truth. Only the settings, mappings and the production plan are genuinely
+// single-valued, and there the more recently touched copy wins.
+function mergeStates(local, remote) {
+  if (!remote) return local;
+  const lts = local._lastModified || 0, rts = remote._lastModified || 0;
+  const newer = rts > lts ? remote : local;
+  const older = newer === remote ? local : remote;
+
+  const out = {
+    version: 1,
+    _lastModified: Math.max(lts, rts),
+    settings: newer.settings || older.settings || {},
+    mappings: newer.mappings || older.mappings || {},
+    plan: newer.plan || older.plan || {},
+    materials: { ...(older.materials || {}), ...(newer.materials || {}) },
+    stock: {}, movements: [], orders: [], ordersDate: null, imports: [],
+  };
+
+  // Stock — union over plant and date; where both hold the same day, the more
+  // recently written copy is the one that was imported last.
+  for (const src of [older, newer]) {
+    for (const plant in (src.stock || {})) {
+      out.stock[plant] = out.stock[plant] || {};
+      for (const date in src.stock[plant]) out.stock[plant][date] = src.stock[plant][date];
+    }
+  }
+
+  // Movements — union by the same key the importer deduplicates on.
+  const seen = new Set();
+  for (const src of [local, remote]) {
+    for (const m of (src.movements || [])) {
+      const k = m.key || movementKey(m);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.movements.push(m.key ? m : { ...m, key: k });
+    }
+  }
+  out.movements.sort((a, b) => a.date.localeCompare(b.date));
+
+  // Open orders — a snapshot, so the later export replaces the earlier one
+  // wholesale. Merging two order lists would resurrect closed lines.
+  const lo = local.ordersDate || '', ro = remote.ordersDate || '';
+  const pick = ro > lo ? remote : lo > ro ? local : newer;
+  out.orders = pick.orders || [];
+  out.ordersDate = pick.ordersDate || null;
+
+  // Import log — union by id, newest first.
+  const ids = new Set();
+  for (const src of [local, remote]) {
+    for (const i of (src.imports || [])) {
+      if (!i || ids.has(i.id)) continue;
+      ids.add(i.id);
+      out.imports.push(i);
+    }
+  }
+  out.imports.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  if (out.imports.length > 200) out.imports.length = 200;
+
+  return out;
+}
+
+function countRows(st) {
+  return (st.movements || []).length + (st.orders || []).length +
+    Object.keys(st.materials || {}).length;
+}
+
+// ═══════════════════════════════════════════════════════════
+// DROPBOX CLOUD SYNC (PKCE, refresh-token, no app secret)
+// ═══════════════════════════════════════════════════════════
+const Dropbox = (() => {
+  const FILE_PATH = '/paper-planning.json';       // inside the app's own App folder
+  const LS = {
+    appKey:  'pp_dbx_app_key',
+    refresh: 'pp_dbx_refresh_token',
+    pkce:    'pp_dbx_pkce_verifier',
+    enabled: 'pp_dbx_enabled',
+    rev:     'pp_dbx_rev',
+  };
+  let accessToken = null, accessExpiry = 0;
+  let uploadTimer = null, lastRemoteCheck = 0, busy = false;
+  let status = 'off', lastError = '';
+
+  const cfg = {
+    get appKey()  { return localStorage.getItem(LS.appKey) || ''; },
+    set appKey(v) { v ? localStorage.setItem(LS.appKey, v) : localStorage.removeItem(LS.appKey); },
+    get refresh() { return localStorage.getItem(LS.refresh) || ''; },
+    set refresh(v){ v ? localStorage.setItem(LS.refresh, v) : localStorage.removeItem(LS.refresh); },
+    get enabled() { return localStorage.getItem(LS.enabled) === '1'; },
+    set enabled(v){ v ? localStorage.setItem(LS.enabled, '1') : localStorage.removeItem(LS.enabled); },
+    get rev()     { return localStorage.getItem(LS.rev) || ''; },
+    set rev(v)    { v ? localStorage.setItem(LS.rev, v) : localStorage.removeItem(LS.rev); },
+  };
+
+  function isConnected() { return !!cfg.refresh && cfg.enabled; }
+
+  function setStatus(s, err) {
+    status = s; lastError = err || '';
+    const ind = document.getElementById('dropboxIndicator');
+    if (ind) {
+      const map = {
+        off:        ['○ DROPBOX OFF', 'var(--text-2)'],
+        connecting: ['◐ CONNECTING…', ''],
+        synced:     ['● DROPBOX SYNCED', 'var(--green)'],
+        syncing:    ['◐ SYNCING…', ''],
+        offline:    ['○ OFFLINE', 'var(--text-2)'],
+        error:      ['⚠ SYNC ERROR', 'var(--red)'],
+      };
+      const [txt, col] = map[s] || map.off;
+      ind.textContent = txt;
+      ind.style.color = col;
+      ind.title = err ? 'Dropbox: ' + err : 'Dropbox sync status';
+    }
+    if (document.getElementById('page-settings').classList.contains('active')) render();
+  }
+
+  // ---- PKCE ----
+  function b64url(buf) {
+    return btoa(String.fromCharCode(...new Uint8Array(buf)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function randomVerifier() {
+    const a = new Uint8Array(64); crypto.getRandomValues(a);
+    return b64url(a.buffer);
+  }
+  function redirectUri() {
+    // Dropbox only accepts https (or localhost) redirects. Chromium reports
+    // location.origin as "file://" rather than "null" for a local file, which
+    // would otherwise produce a file:/// redirect that Dropbox rejects, so the
+    // protocol is checked directly and the paste-the-code path used instead.
+    if (location.protocol === 'file:') return '';
+    return (location.origin && location.origin !== 'null')
+      ? location.origin + location.pathname
+      : '';
+  }
+
+  async function connect() {
+    const el = document.getElementById('dbxAppKeyInput');
+    const key = ((el && el.value) || cfg.appKey).trim();
+    if (!key) { notify('Enter your Dropbox app key first', 'info'); return; }
+    cfg.appKey = key;
+    const verifier = randomVerifier();
+    localStorage.setItem(LS.pkce, verifier);
+    const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+    const params = new URLSearchParams({
+      client_id: key, response_type: 'code',
+      code_challenge: challenge, code_challenge_method: 'S256',
+      token_access_type: 'offline',
+    });
+    const ru = redirectUri();
+    if (ru) params.set('redirect_uri', ru);
+    const url = 'https://www.dropbox.com/oauth2/authorize?' + params.toString();
+    setStatus('connecting');
+    if (ru) {
+      window.location.href = url;
+    } else {
+      window.open(url, '_blank', 'noopener');
+      const box = document.getElementById('dbxCodeBox');
+      if (box) box.style.display = 'block';
+      notify('Authorise in the new tab, then paste the code back here', 'info');
+    }
+  }
+
+  async function finishConnect(codeFromRedirect) {
+    const el = document.getElementById('dbxCodeInput');
+    const code = (codeFromRedirect || (el && el.value) || '').trim();
+    if (!code) { notify('Paste the authorisation code', 'info'); return; }
+    const verifier = localStorage.getItem(LS.pkce);
+    if (!verifier) { notify('That request expired — press Connect again', 'info'); return; }
+    setStatus('connecting');
+    try {
+      const body = new URLSearchParams({
+        code, grant_type: 'authorization_code',
+        client_id: cfg.appKey, code_verifier: verifier,
+      });
+      const ru = redirectUri();
+      if (ru) body.set('redirect_uri', ru);
+      const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.refresh_token) throw new Error(data.error_description || data.error || 'Token exchange failed');
+      cfg.refresh = data.refresh_token;
+      cfg.enabled = true;
+      cfg.rev = '';
+      accessToken = data.access_token;
+      accessExpiry = Date.now() + (data.expires_in || 14400) * 1000 - 60000;
+      localStorage.removeItem(LS.pkce);
+      notify('Dropbox connected', 'ok');
+      await syncNow(true);
+    } catch (e) {
+      setStatus('error', e.message);
+      notify('Could not connect: ' + e.message, 'err');
+    }
+  }
+
+  function disconnect() {
+    cfg.refresh = ''; cfg.enabled = false; cfg.rev = '';
+    accessToken = null; accessExpiry = 0;
+    setStatus('off');
+    notify('Dropbox disconnected. The data stays in this browser.', 'info');
+  }
+
+  async function ensureAccessToken() {
+    if (accessToken && Date.now() < accessExpiry) return accessToken;
+    if (!cfg.refresh) throw new Error('Not connected');
+    const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token', refresh_token: cfg.refresh, client_id: cfg.appKey,
+      }).toString(),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.access_token) {
+      if (data.error === 'invalid_grant') { disconnect(); throw new Error('Authorisation was revoked — reconnect'); }
+      throw new Error(data.error_description || data.error || 'Token refresh failed');
+    }
+    accessToken = data.access_token;
+    accessExpiry = Date.now() + (data.expires_in || 14400) * 1000 - 60000;
+    return accessToken;
+  }
+
+  // ---- gzip: a year of movements is ~10 MB of JSON and compresses ~15x ----
+  async function pack(text) {
+    if (typeof CompressionStream === 'undefined') return new Blob([text]);
+    const stream = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'));
+    return await new Response(stream).blob();
+  }
+  async function unpack(blob) {
+    const head = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
+    if (head[0] !== 0x1f || head[1] !== 0x8b) return await blob.text();   // stored uncompressed
+    const stream = blob.stream().pipeThrough(new DecompressionStream('gzip'));
+    return await new Response(stream).text();
+  }
+
+  async function remoteMeta() {
+    const token = await ensureAccessToken();
+    const res = await fetch('https://api.dropboxapi.com/2/files/get_metadata', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: FILE_PATH }),
+    });
+    if (!res.ok) return null;                       // not created yet
+    return await res.json();
+  }
+
+  async function download() {
+    const token = await ensureAccessToken();
+    const res = await fetch('https://content.dropboxapi.com/2/files/download', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Dropbox-API-Arg': JSON.stringify({ path: FILE_PATH }) },
+    });
+    if (res.status === 409) return null;
+    if (!res.ok) {
+      const txt = res.headers.get('dropbox-api-result') || (await res.text());
+      if (txt && txt.indexOf('not_found') > -1) return null;
+      throw new Error('Download failed (' + res.status + ')');
+    }
+    const meta = res.headers.get('dropbox-api-result');
+    if (meta) { try { cfg.rev = JSON.parse(meta).rev || cfg.rev; } catch (e) {} }
+    return JSON.parse(await unpack(await res.blob()));
+  }
+
+  // Uploads against the revision this browser last saw. If the file moved on
+  // in the meantime Dropbox refuses the write, and we merge instead of
+  // trampling whatever the other machine put there.
+  async function push(retrying) {
+    const token = await ensureAccessToken();
+    const body = await pack(JSON.stringify(state));
+    const mode = cfg.rev ? { '.tag': 'update', update: cfg.rev } : 'overwrite';
+    const res = await fetch('https://content.dropboxapi.com/2/files/upload', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/octet-stream',
+        'Dropbox-API-Arg': JSON.stringify({ path: FILE_PATH, mode, mute: true, autorename: false }),
+      },
+      body,
+    });
+    if (res.status === 409 && !retrying) {
+      const remote = await download();
+      state = mergeStates(state, remote);
+      invalidate(); saveLocalOnly(); refreshAll();
+      notify('Another computer had newer data — merged before saving', 'info');
+      return await push(true);
+    }
+    if (!res.ok) throw new Error('Upload failed (' + res.status + ') ' + (await res.text()).slice(0, 120));
+    const meta = await res.json();
+    cfg.rev = meta.rev || '';
+    return meta;
+  }
+
+  function scheduleUpload() {
+    if (!isConnected()) return;
+    clearTimeout(uploadTimer);
+    setStatus('syncing');
+    uploadTimer = setTimeout(async () => {
+      if (busy) { scheduleUpload(); return; }
+      busy = true;
+      try { await push(); setStatus('synced'); }
+      catch (e) { setStatus(navigator.onLine ? 'error' : 'offline', e.message); }
+      finally { busy = false; }
+    }, 2000);
+  }
+
+  // Pull, merge, push. Safe to call at any time.
+  async function syncNow(quiet) {
+    if (!isConnected()) { setStatus('off'); return; }
+    if (busy) return;
+    busy = true;
+    setStatus('syncing');
+    try {
+      const remote = await download();
+      const before = countRows(state);
+      if (remote) {
+        state = mergeStates(state, remote);
+        state.settings = { ...DEFAULTS, ...(state.settings || {}) };
+        invalidate(); saveLocalOnly(); refreshAll();
+      }
+      await push();
+      setStatus('synced');
+      const gained = countRows(state) - before;
+      if (!quiet && gained > 0) notify('Pulled ' + gained + ' new row(s) from Dropbox', 'ok');
+      else if (!quiet) notify('Up to date', 'ok');
+    } catch (e) {
+      setStatus(navigator.onLine ? 'error' : 'offline', e.message);
+      if (!quiet) notify('Sync failed: ' + e.message, 'err');
+    } finally { busy = false; }
+  }
+
+  // Cheap poll — one metadata call, and a download only when the revision moved.
+  async function checkRemote() {
+    if (!isConnected() || busy) return;
+    if (Date.now() - lastRemoteCheck < 20000) return;
+    lastRemoteCheck = Date.now();
+    try {
+      const meta = await remoteMeta();
+      if (meta && meta.rev && meta.rev !== cfg.rev) await syncNow(true);
+    } catch (e) { /* offline; the next attempt will pick it up */ }
+  }
+
+  function saveLocalOnly() {
+    openDB().then(d => {
+      const tx = d.transaction(DB_STORE, 'readwrite');
+      tx.objectStore(DB_STORE).put(JSON.parse(JSON.stringify(state)), DB_KEY);
+    }).catch(() => {});
+  }
+
+  function handleRedirect() {
+    const p = new URLSearchParams(location.search);
+    const code = p.get('code');
+    if (code && localStorage.getItem(LS.pkce)) {
+      history.replaceState({}, '', location.pathname);
+      finishConnect(code);
+      return true;
+    }
+    return false;
+  }
+
+  function render() {
+    const el = document.getElementById('dropboxSettings');
+    if (!el) return;
+    if (isConnected()) {
+      const label = { synced: 'Synced', syncing: 'Syncing…', offline: 'Offline — will sync when the connection is back',
+                      error: 'Error: ' + lastError, connecting: 'Connecting…' }[status] || 'Connected';
+      el.innerHTML =
+        '<div class="dbx-row"><span class="dbx-dot ' + status + '"></span>' +
+        '<span>Syncing to <code>Apps/…' + FILE_PATH + '</code></span></div>' +
+        '<div class="small" style="margin-top:6px">' + esc(label) + '</div>' +
+        '<div class="row" style="margin-top:12px">' +
+        '<button class="btn" id="dbxSyncBtn">↻ Sync now</button>' +
+        '<button class="btn danger" id="dbxDisconnectBtn">Disconnect</button></div>';
+      el.querySelector('#dbxSyncBtn').onclick = () => syncNow(false);
+      el.querySelector('#dbxDisconnectBtn').onclick = disconnect;
+    } else {
+      const onFile = !redirectUri();
+      el.innerHTML =
+        '<ol class="steps">' +
+        '<li>Open <a href="https://www.dropbox.com/developers/apps" target="_blank" rel="noopener">dropbox.com/developers/apps</a> and create an app — Scoped access, App folder, any name.</li>' +
+        '<li>On the Permissions tab tick <code>files.content.read</code> and <code>files.content.write</code>, then Submit.</li>' +
+        (onFile ? '' : '<li>On the Settings tab add this page as a Redirect URI: <code>' + esc(redirectUri()) + '</code></li>') +
+        '<li>Copy the App key from the Settings tab and paste it below.</li>' +
+        '<li>Do the same on every other computer, pasting the <em>same</em> app key.</li>' +
+        '</ol>' +
+        '<div class="row"><input type="text" id="dbxAppKeyInput" placeholder="Dropbox app key" style="width:240px" value="' + esc(cfg.appKey) + '">' +
+        '<button class="btn primary" id="dbxConnectBtn">Connect</button></div>' +
+        '<div id="dbxCodeBox" style="display:' + (onFile ? 'block' : 'none') + ';margin-top:10px">' +
+        '<div class="small" style="margin-bottom:6px">Opened from a file rather than a web address, so Dropbox will show you a code to paste back here.</div>' +
+        '<div class="row"><input type="text" id="dbxCodeInput" placeholder="Authorisation code" style="width:280px">' +
+        '<button class="btn" id="dbxFinishBtn">Finish</button></div></div>';
+      el.querySelector('#dbxConnectBtn').onclick = () => connect();
+      el.querySelector('#dbxFinishBtn').onclick = () => finishConnect();
+    }
+  }
+
+  return { isConnected, scheduleUpload, syncNow, checkRemote, disconnect, handleRedirect, render, setStatus, saveLocalOnly };
+})();
 
 // ═══════════════════════════════════════════════════════════
 // UTILITIES
@@ -2283,6 +2732,8 @@ function renderSettings() {
     b.onclick = () => { state.mappings[b.dataset.clearmap] = {}; saveState(true); renderSettings(); };
   });
 
+  Dropbox.render();
+
   const snapCount = PLANTS().reduce((n, p) => n + snapDates(p).length, 0);
   document.getElementById('dataStats').innerHTML =
     '<strong>' + Object.keys(state.materials).length + '</strong> materials · ' +
@@ -2336,8 +2787,11 @@ function wireSettings() {
     alert(gone + ' movement row(s) removed.');
   };
   document.getElementById('btnWipe').onclick = () => {
+    const synced = Dropbox.isConnected();
     if (!confirm('This erases every material, movement, snapshot and order from this browser. Export a backup first if you need one. Continue?')) return;
+    if (synced && !confirm('Dropbox sync is on. Erasing here would push the empty database to every other computer, so sync will be switched off first and the Dropbox copy left as it is. Continue?')) return;
     if (!confirm('Really erase everything? This cannot be undone.')) return;
+    if (synced) Dropbox.disconnect();
     state = { version: 1, materials: {}, stock: {}, movements: [], orders: [], ordersDate: null,
               imports: [], mappings: { stock: {}, movements: {}, orders: {} },
               settings: { ...DEFAULTS }, plan: { month: '', total: 0, unit: '', spread: 'work', basis: '90', split: {} } };
@@ -2469,6 +2923,13 @@ function checkLibraries() {
     ' will not work. Check the network connection or the site\u2019s content policy, then reload.</div>');
 }
 
+// A second machine picks up an import made elsewhere when the tab is focused.
+function watchRemote() {
+  window.addEventListener('focus', () => Dropbox.checkRemote());
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) Dropbox.checkRemote(); });
+  setInterval(() => { if (!document.hidden) Dropbox.checkRemote(); }, 120000);
+}
+
 (async function init() {
   if (typeof indexedDB === 'undefined') {
     document.body.insertAdjacentHTML('afterbegin',
@@ -2478,6 +2939,9 @@ function checkLibraries() {
   await loadState();
   wire();
   boot();
+  Dropbox.setStatus(Dropbox.isConnected() ? 'syncing' : 'off');
+  if (!Dropbox.handleRedirect() && Dropbox.isConnected()) Dropbox.syncNow(true);
+  watchRemote();
 })();
 </script>
 </body>

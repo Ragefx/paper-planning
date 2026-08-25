@@ -75,16 +75,45 @@ export carries no real description, it is spelled out as `3300 · 110 g/m² ·
 
 ## Where the data lives
 
-In the browser's IndexedDB, on the machine that did the importing. **Uploaded
-files are never stored** — rows are parsed, written to the database, and the
-file is released.
+In the browser's IndexedDB, and — once Dropbox sync is switched on — in a
+single file in your Dropbox, so every computer that connects works from the
+same numbers. **Uploaded spreadsheets are never stored**; rows are parsed,
+written to the database, and the file is released.
 
-That means the database is tied to one browser profile. Settings has JSON
-backup and restore; use it. If more than one person needs the same numbers,
-this needs a shared backend instead.
+### Setting up sync
+
+On the first computer: Settings → Dropbox sync. Create a Dropbox app (Scoped
+access, App folder), give it `files.content.read` and `files.content.write`,
+add the page's address as a Redirect URI, and paste the app key. On every other
+computer, paste the **same** app key and sign in to the same Dropbox account.
+
+Served over http(s) the sign-in returns to the page by itself. Opened straight
+from a file it cannot, so Dropbox shows a code to paste back instead.
+
+### How concurrent changes are handled
+
+The database is pulled, merged and pushed rather than overwritten, and uploads
+carry the revision the browser last saw — if another machine has written in the
+meantime Dropbox refuses the write, and the app merges before retrying instead
+of trampling the other copy.
+
+Merging is possible because of how the data is shaped: movements are
+append-only with a natural key, so both sides' rows are unioned; stock
+snapshots are keyed by plant and date; the open-order list is a dated snapshot
+where the later export simply wins. Only settings, column mappings and the
+production plan are single-valued, and there the more recently edited copy
+wins. A machine that has been offline for a week loses nothing by reconnecting.
+
+Uploads are gzipped. A year of movements at roughly 120 rows a day is about
+12 MB of JSON and around 1 MB compressed.
+
+Sync is optional. Without it the app runs exactly as before, confined to one
+browser, and Settings still offers JSON backup and restore.
 
 ## Dependencies
 
-Chart.js and SheetJS, both loaded from cdnjs at runtime. The app warns you on
+Chart.js and SheetJS, both loaded from cdnjs at runtime. Dropbox sync, when
+enabled, talks to the Dropbox API directly from the page using PKCE, so there
+is no app secret in the source and no server in the middle. The app warns you on
 startup if either fails to load. Vendor them into the repo if the site's
 network blocks the CDN.
