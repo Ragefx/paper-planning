@@ -2289,39 +2289,48 @@ function renderWarehouse() {
 
   // Projection starts from the last actual point inside the month that is not
   // in the future, and runs to month end.
-  const cutIdx = Math.max(0, Math.min(dates.length - 1, dates.findIndex(d => d > today) === -1 ? dates.length - 1 : dates.findIndex(d => d > today) - 1));
-  const inFuture = first > today;
-  const projStart = inFuture ? today : dates[cutIdx];
+  // A month wholly in the past is history; there is nothing to project.
+  const monthIsPast = last < today;
+  const monthIsFuture = first > today;
+  // The projection always begins at today's real stock. For a future month
+  // that means walking the gap between today and the first of the month before
+  // the displayed window even starts — otherwise the month would open at
+  // today's balance as though nothing were consumed or delivered in between.
+  const projStart = monthIsPast ? last : today;
 
-  // Arrivals across the month, from open orders.
-  // An order whose delivery date has already passed is still outstanding, so it
-  // lands on the projection start rather than disappearing from it. In a month
-  // that is entirely in the past the real dates are kept — that view is history.
-  const monthIsCurrentOrFuture = last >= today;
+  // Arrivals from open orders over the whole projected span, which for a
+  // future month reaches back to today. An order past its delivery date is
+  // still outstanding and lands on the projection start rather than vanishing.
   const arrivalsByDate = {};
   for (const c of codes) {
     for (const o of (openOrders()[c] || [])) {
       if (whScope !== 'both' && whScope !== 'split' && o.plant && o.plant !== whScope) continue;
       if (!o.delivery) continue;
       let eff = o.delivery;
-      if (monthIsCurrentOrFuture && eff < projStart) eff = projStart;
-      if (eff < first || eff > last) continue;
+      if (!monthIsPast && eff < projStart) eff = projStart;
+      if (eff < projStart || eff > last) continue;
       (arrivalsByDate[eff] || (arrivalsByDate[eff] = [])).push(
-        o.delivery < projStart && monthIsCurrentOrFuture ? { ...o, overdue: true } : o);
+        o.delivery < projStart && !monthIsPast ? { ...o, overdue: true } : o);
     }
   }
+  const arrivedOn = d => {
+    const arr = arrivalsByDate[d];
+    return arr ? arr.reduce((s, o) => s + o.qty, 0) : 0;
+  };
 
   function buildProjection(startQty) {
     const out = dates.map(() => null);
-    if (startQty === null || startQty === undefined) return out;
-    let q = startQty;
-    for (let i = 0; i < dates.length; i++) {
-      const d = dates[i];
-      if (d < projStart) continue;
-      if (d > projStart && consumesOn(d)) q -= usage;
-      const arr = arrivalsByDate[d];
-      if (arr) q += arr.reduce((s, o) => s + o.qty, 0);
-      out[i] = q;
+    if (monthIsPast || startQty === null || startQty === undefined) return out;
+    let q = startQty + arrivedOn(projStart);
+    const span = daysBetween(projStart, last);
+    for (let i = 0; i <= span; i++) {
+      const d = addDays(projStart, i);
+      if (i > 0) {
+        if (consumesOn(d)) q -= usage;
+        q += arrivedOn(d);
+      }
+      const at = dates.indexOf(d);          // days before the month are walked, not drawn
+      if (at > -1) out[at] = q;
     }
     return out;
   }
@@ -2338,18 +2347,17 @@ function renderWarehouse() {
   if (whScope === 'split') {
     datasets.push(lineDs(PLANT_WH() + ' actual', maskFuture(actWh, dates, today), cWh, false));
     datasets.push(lineDs(PLANT_PROD() + ' actual', maskFuture(actPr, dates, today), cPr, false));
-    datasets.push(lineDs(PLANT_PROD() + ' projected', buildProjection(actPr[cutIdx]), cPr, true));
+    datasets.push(lineDs(PLANT_PROD() + ' projected', buildProjection(scopeStockFor(code, PLANT_PROD())), cPr, true));
   } else {
     const act = maskFuture(actualForScope(), dates, today);
-    const startQty = actualForScope()[cutIdx];
     datasets.push(lineDs('Actual stock', act, cTot, false, true));
-    datasets.push(lineDs('Projected', buildProjection(inFuture ? scopeStockFor(code, whScope) : startQty), cTot, true));
+    datasets.push(lineDs('Projected', buildProjection(scopeStockFor(code, whScope)), cTot, true));
   }
 
   // Arrival markers sit on the line they belong to.
   const line = datasets[datasets.length - 1].data;
   const prevLine = datasets[0].data;
-  const arrivals = Object.keys(arrivalsByDate).sort().map(d => {
+  const arrivals = Object.keys(arrivalsByDate).filter(d => d >= first && d <= last).sort().map(d => {
     const i = dates.indexOf(d);
     const orders = arrivalsByDate[d];
     const lvl = (line[i] !== null && line[i] !== undefined) ? line[i] : (prevLine[i] !== null && prevLine[i] !== undefined ? prevLine[i] : 0);
