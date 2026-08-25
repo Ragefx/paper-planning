@@ -23,7 +23,18 @@ does not. Where an export posts a 301 as a single line with a receiving plant,
 it is mirrored into that plant; MB51-style exports that already post both legs
 are used as they are.
 
-Two things the numbers depend on, both handled explicitly:
+### Working days
+
+The machines run Monday to Friday, so a usage rate is **per working day**, not
+per calendar day, and no projection draws stock at a weekend. Consumption
+posted on a Saturday still counts towards the total — it is only the divisor
+that changes. Cover is still reported in calendar days, since that is what
+"when do I run out" means: 12.9 working days of stock on a Tuesday runs out a
+fortnight later, not next week.
+
+Settings has a toggle for sites that run seven days.
+
+Two further things the numbers depend on, both handled explicitly:
 
 - **Usage averages are clipped to the history you hold.** With six days of
   movements imported, a "30-day average" divides by six days, not thirty. Every

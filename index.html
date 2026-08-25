@@ -489,6 +489,12 @@ h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; 
     <div class="row">
       <label class="fld">Critical below (days) <input type="number" id="setCrit" min="0" step="1" style="width:100px"></label>
       <label class="fld">Low below (days) <input type="number" id="setLow" min="0" step="1" style="width:100px"></label>
+      <label class="fld">Machines run
+        <select id="setUsageDays">
+          <option value="work">Monday to Friday</option>
+          <option value="all">Every day</option>
+        </select>
+      </label>
       <label class="fld">Movement sign handling
         <select id="setSign">
           <option value="auto">Auto-detect from file</option>
@@ -500,6 +506,7 @@ h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; 
         <input type="number" id="setSpike" min="0" step="0.5" style="width:110px" placeholder="0 = off">
       </label>
     </div>
+    <div class="small" style="margin-top:10px">Usage rates are per day the machines run, and projections draw no stock on the days they do not. Consumption posted at a weekend still counts towards the total — it is only the divisor that changes.</div>
     <div class="small" style="margin-top:10px">SAP exports normally carry signed quantities (receipts positive, issues negative). Auto-detect trusts those signs when it finds negatives, and otherwise applies the sign implied by the movement type.</div>
   </div>
   <div class="card">
@@ -553,6 +560,7 @@ const DEFAULTS = {
   lowDays: 7,
   signMode: 'auto',
   spikeFactor: 0,
+  usageDays: 'work',        // 'work' = machines run Mon–Fri, 'all' = every day
 };
 
 let state = {
@@ -1075,6 +1083,9 @@ function daysBetween(a, b) { return Math.round((fromISO(b) - fromISO(a)) / DAY);
 function monthKey(iso) { return iso.slice(0, 7); }
 function monthDays(mk) { const [y, m] = mk.split('-').map(Number); return new Date(y, m, 0).getDate(); }
 function isWorkday(iso) { const d = fromISO(iso).getDay(); return d !== 0 && d !== 6; }
+// Whether paper is consumed on a given date. The machines run Monday to
+// Friday, so a rate is per working day and no stock is drawn at the weekend.
+function consumesOn(iso) { return state.settings.usageDays === 'all' || isWorkday(iso); }
 function shortDate(iso) { return iso ? iso.slice(8, 10) + '.' + iso.slice(5, 7) + '.' : ''; }
 
 function fmt(n, dec) {
@@ -1558,13 +1569,17 @@ function usageWindow(basis) {
   const to = lastMovementDate();
   if (!to) return null;
   const first = firstMovementDate();
-  if (basis === 'all') {
-    return { from: first, to, span: Math.max(1, daysBetween(first, to) + 1), plants: PLANTS(), clipped: false };
-  }
+  const build = (from, plants, clipped) => {
+    const span = Math.max(1, daysBetween(from, to) + 1);
+    let workdays = 0;
+    for (let i = 0; i < span; i++) if (consumesOn(addDays(from, i))) workdays++;
+    return { from, to, span, workdays, plants, clipped };
+  };
+  if (basis === 'all') return build(first, PLANTS(), false);
   const n = Number(basis) || 30;
   const wanted = addDays(to, -(n - 1));
   const from = (first && first > wanted) ? first : wanted;
-  return { from, to, span: Math.max(1, daysBetween(from, to) + 1), plants: [PLANT_PROD()], clipped: from !== wanted };
+  return build(from, [PLANT_PROD()], from !== wanted);
 }
 
 function avgUsage(code, basis) {
@@ -1572,24 +1587,26 @@ function avgUsage(code, basis) {
   if (!idx) return 0;
   const w = usageWindow(basis);
   if (!w) return 0;
-  const { plants, from, to, span } = w;
-  const daily = [];
-  for (let i = 0; i < span; i++) {
-    const d = addDays(from, i);
-    if (d > to) break;
+  const rows = [];
+  for (let i = 0; i < w.span; i++) {
+    const d = addDays(w.from, i);
+    if (d > w.to) break;
     let v = 0;
-    for (const p of plants) { const bp = idx[p]; if (bp && bp[d]) v += bp[d]; }
-    daily.push(v);
+    for (const p of w.plants) { const bp = idx[p]; if (bp && bp[d]) v += bp[d]; }
+    rows.push({ v, counts: consumesOn(d) });
   }
-  if (!daily.length) return 0;
-  let sum = daily.reduce((a, b) => a + b, 0);
+  if (!rows.length) return 0;
+  let sum = rows.reduce((a, r) => a + r.v, 0);
+  let denom = rows.filter(r => r.counts).length;
   const factor = Number(state.settings.spikeFactor) || 0;
-  if (factor > 0) {
-    const mean = sum / daily.length;
-    const kept = daily.filter(v => v <= mean * factor);
-    if (kept.length) return Math.max(0, kept.reduce((a, b) => a + b, 0) / kept.length);
+  if (factor > 0 && denom > 0) {
+    const mean = sum / denom;
+    const kept = rows.filter(r => r.v <= mean * factor);
+    const keptDenom = kept.filter(r => r.counts).length;
+    if (keptDenom > 0) { sum = kept.reduce((a, r) => a + r.v, 0); denom = keptDenom; }
   }
-  return Math.max(0, sum / daily.length);
+  if (!denom) denom = rows.length;      // a window with no working days in it
+  return Math.max(0, sum / denom);
 }
 
 // Total usage over the last n days at the production plant (for the split mix).
@@ -1675,10 +1692,9 @@ const COVER_HORIZON = 90;   // days to look ahead before calling stock "covered"
 // Returns { days, capped, noUsage }. `capped` means nothing ran out inside the
 // horizon; `noUsage` means no consumption was recorded, so the question does
 // not apply.
-function coverDays(code, usage) {
-  const total = stockScope(code, 'both');
+function coverDays(code, usage, ignoreOrders) {
   if (!(usage > 0)) return { days: null, capped: false, noUsage: true };
-  const proj = project(code, { days: COVER_HORIZON, scope: 'both', dailyUsage: usage });
+  const proj = project(code, { days: COVER_HORIZON, scope: 'both', dailyUsage: usage, ignoreOrders: !!ignoreOrders });
   if (!proj.stockout) return { days: null, capped: true, noUsage: false };
   return { days: daysBetween(todayISO(), proj.stockout), capped: false, noUsage: false };
 }
@@ -1694,6 +1710,7 @@ function materialRows(basis) {
       const total = qWh + qPr;
       const usage = avgUsage(code, basis);
       const cover = coverDays(code, usage);
+      const bare = coverDays(code, usage, true);
       return {
         code, desc: (state.materials[code] || {}).desc || '', unit: unitOf(code),
         wh: qWh, pr: qPr, total,
@@ -1702,9 +1719,9 @@ function materialRows(basis) {
         overdue: overdueQty(code),
         usage,
         days: cover.days, capped: cover.capped, noUsage: cover.noUsage,
-        // What the cover would be with nothing arriving — the exposure if
-        // every open order slipped.
-        daysNoSupply: usage > 0 ? total / usage : null,
+        // The same walk with nothing arriving — the exposure if every open
+        // order slipped. Same units, same horizon, so the two are comparable.
+        bareDays: bare.days, bareCapped: bare.capped,
       };
     });
   });
@@ -1728,8 +1745,9 @@ function basisNote(basis) {
   const w = usageWindow(basis);
   if (!w) return 'no movement history';
   const who = w.plants.join(' + ');
-  if (basis === 'all') return who + ' · ' + w.span + ' days, from ' + w.from;
-  return who + ' only' + (w.clipped ? ' · only ' + w.span + ' days of history' : '');
+  const unit = state.settings.usageDays === 'all' ? 'per day' : 'per working day';
+  if (basis === 'all') return who + ' · ' + unit + ' over ' + w.workdays + ' of ' + w.span + ' days, from ' + w.from;
+  return who + ' only · ' + unit + (w.clipped ? ' · only ' + w.span + ' days of history' : '');
 }
 
 function riskLevel(days) {
@@ -1748,11 +1766,15 @@ function project(code, opts) {
   const days = opts.days || 30;
   const scope = opts.scope || 'both';
   let qty = opts.startQty !== undefined ? opts.startQty : stockScope(code, scope);
-  const usageFn = typeof opts.dailyUsage === 'function' ? opts.dailyUsage : () => opts.dailyUsage || 0;
+  // A flat rate is per working day, so it is drawn only on working days. A
+  // caller passing a function (production planning) decides for itself.
+  const usageFn = typeof opts.dailyUsage === 'function'
+    ? opts.dailyUsage
+    : date => (consumesOn(date) ? (opts.dailyUsage || 0) : 0);
 
   // Bucket open orders by arrival date; anything already overdue lands on day 0.
   const buckets = {};
-  const list = (openOrders()[code] || []).filter(o =>
+  const list = opts.ignoreOrders ? [] : (openOrders()[code] || []).filter(o =>
     scope === 'both' || !o.plant || o.plant === scope || (scope === PLANT_PROD() && !o.plant));
   for (const o of list) {
     if (!o.delivery) continue;                       // no confirmed date, no place on the curve
@@ -1861,9 +1883,9 @@ const MAT_COLS = [
   { k: 'pr',      label: 'SI11',       cls: 'num' },
   { k: 'total',   label: 'Total',      cls: 'num' },
   { k: 'ordered', label: 'On order',   cls: 'num' },
-  { k: 'usage',   label: 'Avg / day',  cls: 'num' },
+  { k: 'usage',   label: 'Avg / work day', cls: 'num' },
   { k: 'days',    label: 'Days to stockout', cls: 'num' },
-  { k: 'daysNoSupply', label: 'Cover w/o deliveries', cls: 'num' },
+  { k: 'bareDays', label: 'Cover w/o deliveries', cls: 'num' },
 ];
 
 function renderMaterials() {
@@ -1905,9 +1927,9 @@ function renderMaterials() {
   rows.sort((a, b) => {
     let x = a[matSort.field], y = b[matSort.field];
     if (matSort.field === 'days') { x = coverRank(a); y = coverRank(b); }
-    else if (matSort.field === 'daysNoSupply') {
-      x = x === null ? Number.MAX_VALUE : x;
-      y = y === null ? Number.MAX_VALUE : y;
+    else if (matSort.field === 'bareDays') {
+      x = coverRank({ days: a.bareDays, capped: a.bareCapped, noUsage: a.noUsage });
+      y = coverRank({ days: b.bareDays, capped: b.bareCapped, noUsage: b.noUsage });
     }
     if (typeof x === 'string') return x.localeCompare(y, undefined, { numeric: true }) * dir;
     return ((x || 0) - (y || 0)) * dir;
@@ -1933,10 +1955,10 @@ function renderMaterials() {
     const col = lvl === 'crit' ? 'var(--red)' : lvl === 'warn' ? 'var(--amber)' : 'var(--green)';
     const pct = (r.noUsage || r.days === null) ? (r.capped ? 100 : 0)
               : Math.min(100, r.days / maxDays * 100);
-    // Where deliveries are what keeps a material alive, say so — the gap
-    // between the two columns is the exposure if an order slips.
-    const propped = !r.noUsage && r.daysNoSupply !== null &&
-                    (r.capped || r.days > r.daysNoSupply + 0.5);
+    // Only mark a material as propped up when it would genuinely run short
+    // without its deliveries — not merely because it has plenty of stock.
+    const propped = !r.noUsage && !r.bareCapped && r.bareDays !== null &&
+                    (r.capped || r.days > r.bareDays);
     const notes = [];
     if (r.undated) notes.push(fmt(r.undated, 0) + ' has no confirmed delivery date and is left out of the projection');
     if (r.overdue) notes.push(fmt(r.overdue, 0) + ' is past its delivery date and is assumed to arrive today');
@@ -1955,7 +1977,8 @@ function renderMaterials() {
       '<td class="num"><div class="days-bar"><div class="days-track"><div class="days-fill" style="width:' + pct + '%;background:' + col + '"></div></div>' +
         '<span style="color:' + (lvl === 'none' ? 'var(--text-2)' : col) + '">' + fmtCover(r) + '</span></div></td>' +
       '<td class="num muted"' + (propped ? ' title="Deliveries are what close this gap"' : '') + '>' +
-        (r.daysNoSupply === null ? '—' : fmtDays(r.daysNoSupply)) + (propped ? ' <span style="color:var(--blue)">↑</span>' : '') + '</td>' +
+        fmtCover({ days: r.bareDays, capped: r.bareCapped, noUsage: r.noUsage }) +
+        (propped ? ' <span style="color:var(--blue)">↑</span>' : '') + '</td>' +
     '</tr>';
   }).join('');
 
@@ -1967,9 +1990,10 @@ function renderMaterials() {
   host.innerHTML = thinBanner + '<div class="table-wrap"><table><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>' +
     '<div class="small" style="margin-top:8px">' + rows.length + ' material(s) shown. Click a row to open its forecast. ' +
     '<strong>Days to stockout</strong> runs stock forward at ' + basisNote(basis) +
-    ', adding each open order on its confirmed delivery date; <strong>' + COVER_HORIZON +
-    '</strong> days is as far as it looks. <strong>Cover w/o deliveries</strong> is the same stock with nothing arriving — ' +
-    'a ↑ marks materials that only get through on a delivery landing in time. ' +
+    ', drawing nothing on the days the machines are idle and adding each open order on its confirmed delivery date; ' +
+    'both cover columns are calendar days and stop looking after <strong>' + COVER_HORIZON + '</strong>. ' +
+    '<strong>Cover w/o deliveries</strong> is the same walk with nothing arriving — ' +
+    'a ↑ marks materials that would run short without a delivery landing in time. ' +
     '<strong>*</strong> marks quantities on order with no confirmed date, which cannot be projected; ' +
     '<strong style="color:var(--red)">!</strong> marks orders already past their delivery date, which the projection ' +
     'assumes arrive today — chase those before trusting the number.</div>';
@@ -2007,8 +2031,8 @@ function exportMaterialsCSV() {
   for (const r of rows) {
     lines.push([r.code, '"' + String(r.desc).replace(/"/g, '""') + '"', r.unit,
       r.wh, r.pr, r.total, r.ordered, r.undated, r.overdue, r.usage.toFixed(3),
-      r.noUsage ? '' : r.capped ? '>' + COVER_HORIZON : r.days.toFixed(1),
-      r.daysNoSupply === null ? '' : r.daysNoSupply.toFixed(1)].join(';'));
+      r.noUsage ? '' : r.capped ? '>' + COVER_HORIZON : r.days,
+      r.noUsage ? '' : r.bareCapped ? '>' + COVER_HORIZON : r.bareDays].join(';'));
   }
   download('materials-' + todayISO() + '.csv', lines.join('\n'), 'text/csv');
 }
@@ -2062,7 +2086,8 @@ function renderForecast() {
 
   const proj = project(code, { days, scope, dailyUsage: used });
   const stockoutIn = proj.stockout ? daysBetween(todayISO(), proj.stockout) : null;
-  const bareCover = used > 0 ? cur / used : null;
+  const bareProj = project(code, { days, scope, dailyUsage: used, ignoreOrders: true });
+  const bareOut = bareProj.stockout ? daysBetween(todayISO(), bareProj.stockout) : null;
 
   document.getElementById('fcChartTitle').textContent = materialLabel(code);
   statsHost.innerHTML = [
@@ -2078,7 +2103,7 @@ function renderForecast() {
          used <= 0 ? 'no usage recorded'
            : (stockoutIn === null ? 'covered for the whole ' + days + '-day horizon'
               : stockoutIn <= 0 ? 'nothing in stock' : 'runs out ' + proj.stockout) +
-             (bareCover === null ? '' : ' · ' + fmtDays(bareCover) + ' d with nothing arriving'),
+             (used <= 0 ? '' : ' · ' + (bareOut === null ? '> ' + days : bareOut) + ' d with nothing arriving'),
          riskLevel(stockoutIn) === 'crit' ? 'danger' : riskLevel(stockoutIn) === 'warn' ? 'accent' : ''),
   ].join('');
 
@@ -2248,7 +2273,7 @@ function renderWarehouse() {
     for (let i = 0; i < dates.length; i++) {
       const d = dates[i];
       if (d < projStart) continue;
-      if (d > projStart) q -= usage;
+      if (d > projStart && consumesOn(d)) q -= usage;
       const arr = arrivalsByDate[d];
       if (arr) q += arr.reduce((s, o) => s + o.qty, 0);
       out[i] = q;
@@ -2428,7 +2453,7 @@ function renderPlanning() {
     const proj = project(code, {
       start, days: horizon, scope: 'both',
       dailyUsage: date => {
-        if (date < monthStart) return preRate;                       // run-up to the plan month
+        if (date < monthStart) return consumesOn(date) ? preRate : 0;   // run-up to the plan month
         if (mode === 'work' && !isWorkday(date)) return 0;
         return daily;
       },
@@ -2801,6 +2826,7 @@ function renderSettings() {
   document.getElementById('setLow').value = s.lowDays;
   document.getElementById('setSign').value = s.signMode;
   document.getElementById('setSpike').value = s.spikeFactor || 0;
+  document.getElementById('setUsageDays').value = s.usageDays || 'work';
 
   // Mapping is header-name based, so it can be reviewed without a file open.
   document.getElementById('mapEditor').innerHTML = KINDS.map(k => {
@@ -2851,6 +2877,7 @@ function wireSettings() {
   bind('setLow', 'lowDays', Number);
   bind('setSign', 'signMode');
   bind('setSpike', 'spikeFactor', Number);
+  bind('setUsageDays', 'usageDays');
 
   document.getElementById('btnExport').onclick = () => {
     download('paperplan-backup-' + todayISO() + '.json', JSON.stringify(state, null, 1));
