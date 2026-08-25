@@ -1,0 +1,2376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paper Planning — Corrugated Stock Control</title>
+<script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-0: #f4f5f7;
+  --bg-1: #ffffff;
+  --bg-2: #f0f1f4;
+  --bg-3: #e8eaef;
+  --bg-4: #dde0e8;
+  --border: #dde0e8;
+  --border-light: #c8ccd8;
+  --text-0: #1a1e2e;
+  --text-1: #4a5068;
+  --text-2: #8b92a8;
+  --amber: #d97706;
+  --amber-dim: #fde68a;
+  --amber-glow: rgba(217,119,6,0.10);
+  --teal: #0d9488;
+  --teal-dim: #ccfbf1;
+  --teal-glow: rgba(13,148,136,0.10);
+  --red: #dc2626;
+  --red-glow: rgba(220,38,38,0.10);
+  --green: #16a34a;
+  --blue: #2563eb;
+  --purple: #7c3aed;
+  --orange: #ea580c;
+  --pink: #db2777;
+  --c-si10: #7c3aed;
+  --c-si11: #0d9488;
+  --radius: 6px;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --font-sans: 'IBM Plex Sans', sans-serif;
+}
+:root[data-theme="dark"] {
+  --bg-0: #0e1016;
+  --bg-1: #161a22;
+  --bg-2: #1c212b;
+  --bg-3: #232a37;
+  --bg-4: #2c3543;
+  --border: #262d3a;
+  --border-light: #3a4353;
+  --text-0: #e8ebf2;
+  --text-1: #a6afc4;
+  --text-2: #6b7488;
+  --amber: #f5a623;
+  --amber-dim: rgba(245,166,35,0.28);
+  --amber-glow: rgba(245,166,35,0.14);
+  --teal: #2dd4bf;
+  --teal-dim: rgba(45,212,191,0.24);
+  --teal-glow: rgba(45,212,191,0.12);
+  --red: #f87171;
+  --red-glow: rgba(248,113,113,0.14);
+  --green: #4ade80;
+  --blue: #60a5fa;
+  --purple: #a78bfa;
+  --orange: #fb923c;
+  --pink: #f472b6;
+  --c-si10: #a78bfa;
+  --c-si11: #2dd4bf;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg-0: #0e1016; --bg-1: #161a22; --bg-2: #1c212b; --bg-3: #232a37; --bg-4: #2c3543;
+    --border: #262d3a; --border-light: #3a4353;
+    --text-0: #e8ebf2; --text-1: #a6afc4; --text-2: #6b7488;
+    --amber: #f5a623; --amber-dim: rgba(245,166,35,0.28); --amber-glow: rgba(245,166,35,0.14);
+    --teal: #2dd4bf; --teal-dim: rgba(45,212,191,0.24); --teal-glow: rgba(45,212,191,0.12);
+    --red: #f87171; --red-glow: rgba(248,113,113,0.14); --green: #4ade80; --blue: #60a5fa;
+    --purple: #a78bfa; --orange: #fb923c; --pink: #f472b6;
+    --c-si10: #a78bfa; --c-si11: #2dd4bf;
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg-0); color: var(--text-0); font-family: var(--font-sans); font-size: 14px; min-height: 100vh; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-0); }
+::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+
+/* ── HEADER ── */
+.header {
+  background: var(--bg-1); border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+  padding: 0 20px; display: flex; align-items: center; gap: 16px;
+  height: 56px; position: sticky; top: 0; z-index: 100;
+}
+.logo { font-family: var(--font-mono); font-weight: 600; font-size: 14px; letter-spacing: .14em; color: var(--amber); white-space: nowrap; }
+.logo span { color: var(--text-2); }
+.tabs { display: flex; gap: 2px; margin-left: 8px; overflow-x: auto; }
+.tab {
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--text-2); background: none; border: none; border-bottom: 2px solid transparent;
+  padding: 8px 12px; cursor: pointer; white-space: nowrap; transition: color .12s, border-color .12s;
+}
+.tab:hover { color: var(--text-0); }
+.tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+.header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.save-indicator { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; color: var(--text-2); white-space: nowrap; }
+.save-indicator.saved { color: var(--green); }
+.icon-btn {
+  background: var(--bg-2); border: 1px solid var(--border); color: var(--text-1);
+  border-radius: var(--radius); width: 30px; height: 30px; cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+}
+.icon-btn:hover { background: var(--bg-3); color: var(--text-0); }
+
+/* ── LAYOUT ── */
+.page { max-width: 1500px; margin: 0 auto; padding: 20px; display: none; }
+.page.active { display: block; }
+.page-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.page-title { font-family: var(--font-mono); font-size: 15px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
+.page-sub { font-size: 12px; color: var(--text-2); }
+
+.card { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+.card-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-2); margin-bottom: 12px; }
+
+/* ── STAT TILES ── */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.stat { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
+.stat-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-2); margin-bottom: 6px; }
+.stat-value { font-family: var(--font-mono); font-size: 20px; font-weight: 600; color: var(--text-0); line-height: 1.1; }
+.stat-value.sm { font-size: 16px; }
+.stat-unit { font-size: 11px; color: var(--text-2); font-weight: 400; margin-left: 4px; }
+.stat-note { font-size: 11px; color: var(--text-2); margin-top: 5px; }
+.stat.accent { border-color: var(--amber); background: var(--amber-glow); }
+.stat.danger { border-color: var(--red); background: var(--red-glow); }
+
+/* ── CONTROLS ── */
+.controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+label.fld { display: flex; flex-direction: column; gap: 4px; font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-2); }
+input, select, textarea {
+  background: var(--bg-1); border: 1px solid var(--border-light); color: var(--text-0);
+  border-radius: var(--radius); padding: 7px 9px; font-family: var(--font-sans); font-size: 13px; outline: none;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--amber); }
+input[type=number] { font-family: var(--font-mono); }
+.btn {
+  background: var(--bg-2); border: 1px solid var(--border-light); color: var(--text-0);
+  border-radius: var(--radius); padding: 7px 13px; cursor: pointer;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+}
+.btn:hover { background: var(--bg-3); }
+.btn.primary { background: var(--amber); border-color: var(--amber); color: #1a1200; font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.danger { color: var(--red); border-color: var(--red); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.seg { display: inline-flex; border: 1px solid var(--border-light); border-radius: var(--radius); overflow: hidden; }
+.seg button {
+  background: var(--bg-1); border: none; border-right: 1px solid var(--border); color: var(--text-1);
+  padding: 7px 11px; cursor: pointer; font-family: var(--font-mono); font-size: 11px; letter-spacing: .05em;
+}
+.seg button:last-child { border-right: none; }
+.seg button.active { background: var(--amber); color: #1a1200; font-weight: 600; }
+
+/* ── TABLE ── */
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-1); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th {
+  background: var(--bg-2); font-family: var(--font-mono); font-size: 10px; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--text-2); text-align: left; padding: 9px 10px;
+  border-bottom: 1px solid var(--border); white-space: nowrap; position: sticky; top: 0; z-index: 2;
+}
+thead th.sortable { cursor: pointer; user-select: none; }
+thead th.sortable:hover { color: var(--text-0); }
+tbody td { padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--bg-2); }
+tbody tr.clickable { cursor: pointer; }
+.num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--font-mono); }
+.muted { color: var(--text-2); }
+.desc-cell { white-space: normal; min-width: 220px; max-width: 380px; color: var(--text-1); }
+
+.pill { display: inline-block; font-family: var(--font-mono); font-size: 10px; letter-spacing: .05em; padding: 2px 7px; border-radius: 10px; border: 1px solid var(--border-light); color: var(--text-1); }
+.pill.si10 { color: var(--c-si10); border-color: var(--c-si10); }
+.pill.si11 { color: var(--c-si11); border-color: var(--c-si11); }
+.pill.ok   { color: var(--green); border-color: var(--green); }
+.pill.warn { color: var(--amber); border-color: var(--amber); }
+.pill.crit { color: var(--red); border-color: var(--red); }
+.pill.info { color: var(--blue); border-color: var(--blue); }
+
+.days-bar { display: flex; align-items: center; gap: 7px; justify-content: flex-end; }
+.days-track { width: 54px; height: 5px; border-radius: 3px; background: var(--bg-3); overflow: hidden; flex: none; }
+.days-fill { height: 100%; border-radius: 3px; }
+
+/* ── CHART ── */
+.chart-box { position: relative; height: 380px; }
+.chart-box.tall { height: 440px; }
+.legend-note { font-size: 11px; color: var(--text-2); margin-top: 8px; }
+
+/* ── DROPZONE ── */
+.drop {
+  border: 2px dashed var(--border-light); border-radius: var(--radius); padding: 30px 20px;
+  text-align: center; color: var(--text-2); cursor: pointer; background: var(--bg-1); transition: .12s;
+}
+.drop:hover, .drop.over { border-color: var(--amber); background: var(--amber-glow); color: var(--text-1); }
+.drop-title { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-1); margin-bottom: 6px; }
+
+.kinds { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.kind { background: var(--bg-1); border: 1px solid var(--border); border-left: 3px solid var(--border-light); border-radius: var(--radius); padding: 12px 14px; }
+.kind.stock { border-left-color: var(--blue); }
+.kind.movements { border-left-color: var(--orange); }
+.kind.orders { border-left-color: var(--purple); }
+.kind h4 { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 5px; }
+.kind p { font-size: 11px; color: var(--text-2); line-height: 1.5; }
+.kind .when { font-family: var(--font-mono); font-size: 11px; color: var(--text-1); margin-top: 7px; }
+
+.map-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
+.map-row { display: grid; grid-template-columns: 1fr 1.2fr; gap: 8px; align-items: center; }
+.map-row .fname { font-family: var(--font-mono); font-size: 11px; color: var(--text-1); }
+.map-row .fname i { color: var(--red); font-style: normal; }
+
+.banner { border-radius: var(--radius); padding: 10px 13px; font-size: 12.5px; margin-bottom: 12px; border: 1px solid; line-height: 1.5; }
+.banner.info { border-color: var(--blue); background: rgba(37,99,235,.08); color: var(--text-0); }
+.banner.warn { border-color: var(--amber); background: var(--amber-glow); }
+.banner.err  { border-color: var(--red); background: var(--red-glow); }
+.banner.ok   { border-color: var(--green); background: rgba(22,163,74,.08); }
+
+.empty { text-align: center; padding: 48px 20px; color: var(--text-2); }
+.empty-icon { font-size: 30px; margin-bottom: 10px; opacity: .55; }
+.empty-title { font-family: var(--font-mono); letter-spacing: .08em; text-transform: uppercase; font-size: 12px; color: var(--text-1); margin-bottom: 6px; }
+
+.split { display: grid; grid-template-columns: 1fr 340px; gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .split { grid-template-columns: 1fr; } }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.grow { flex: 1; min-width: 160px; }
+.spacer { flex: 1; }
+.small { font-size: 11.5px; color: var(--text-2); line-height: 1.55; }
+h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-2); margin: 18px 0 8px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">PAPER<span>·</span>PLAN</div>
+  <div class="tabs">
+    <button class="tab active" data-page="materials">All Materials</button>
+    <button class="tab" data-page="forecast">Material Forecast</button>
+    <button class="tab" data-page="warehouse">Warehouse Movement</button>
+    <button class="tab" data-page="planning">Production Planning</button>
+    <button class="tab" data-page="import">Import</button>
+    <button class="tab" data-page="settings">Settings</button>
+  </div>
+  <div class="header-right">
+    <span class="save-indicator" id="saveIndicator">● AUTO-SAVE ON</span>
+    <button class="icon-btn" id="themeBtn" title="Toggle theme">◐</button>
+  </div>
+</div>
+
+<!-- ══════════════ ALL MATERIALS ══════════════ -->
+<div class="page active" id="page-materials">
+  <div class="page-head">
+    <div class="page-title">All Materials</div>
+    <div class="page-sub" id="materialsSub"></div>
+  </div>
+  <div class="stats" id="materialsStats"></div>
+  <div class="controls">
+    <label class="fld">Search
+      <input type="text" id="matSearch" placeholder="code or description" style="width:220px">
+    </label>
+    <label class="fld">Coverage basis
+      <select id="matUsageBasis">
+        <option value="7">Avg usage 7 d (SI11)</option>
+        <option value="30" selected>Avg usage 30 d (SI11)</option>
+        <option value="all">Avg usage all time (SI10+SI11)</option>
+      </select>
+    </label>
+    <label class="fld">Show
+      <select id="matFilter">
+        <option value="active">In stock or on order</option>
+        <option value="all">All materials</option>
+        <option value="risk">At risk only</option>
+        <option value="zero">Zero stock</option>
+      </select>
+    </label>
+    <div class="spacer"></div>
+    <button class="btn" id="matExport">Export CSV</button>
+  </div>
+  <div id="materialsBody"></div>
+</div>
+
+<!-- ══════════════ MATERIAL FORECAST ══════════════ -->
+<div class="page" id="page-forecast">
+  <div class="page-head">
+    <div class="page-title">Material Forecast</div>
+    <div class="page-sub">30-day projection from current stock, open orders and average usage</div>
+  </div>
+  <div class="controls">
+    <label class="fld grow">Material
+      <select id="fcMaterial"></select>
+    </label>
+    <label class="fld">Usage basis
+      <select id="fcBasis">
+        <option value="7">Avg 7 d (SI11)</option>
+        <option value="30" selected>Avg 30 d (SI11)</option>
+        <option value="all">Avg all time (SI10+SI11)</option>
+      </select>
+    </label>
+    <label class="fld">Horizon
+      <select id="fcDays">
+        <option value="14">14 days</option>
+        <option value="30" selected>30 days</option>
+        <option value="60">60 days</option>
+        <option value="90">90 days</option>
+      </select>
+    </label>
+    <label class="fld">Stock scope
+      <select id="fcScope">
+        <option value="both" selected>SI10 + SI11</option>
+        <option value="SI11">SI11 only</option>
+        <option value="SI10">SI10 only</option>
+      </select>
+    </label>
+  </div>
+  <div class="stats" id="fcStats"></div>
+  <div class="card">
+    <div class="card-title" id="fcChartTitle">Projected stock</div>
+    <div class="chart-box tall"><canvas id="fcChart"></canvas></div>
+    <div class="legend-note">Dots mark expected arrivals from open purchase orders (GR quantity = 0). Hover for order number, quantity and supplier.</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Open orders for this material</div>
+    <div id="fcOrders"></div>
+  </div>
+</div>
+
+<!-- ══════════════ WAREHOUSE MOVEMENT ══════════════ -->
+<div class="page" id="page-warehouse">
+  <div class="page-head">
+    <div class="page-title">Warehouse Movement</div>
+    <div class="page-sub">Stock evolution across the month — actuals to date, projection ahead</div>
+  </div>
+  <div class="controls">
+    <label class="fld">Month
+      <input type="month" id="whMonth">
+    </label>
+    <label class="fld grow">Material
+      <select id="whMaterial"><option value="__all__">All materials (total)</option></select>
+    </label>
+    <label class="fld">Usage basis
+      <select id="whBasis">
+        <option value="7">Avg 7 d (SI11)</option>
+        <option value="30" selected>Avg 30 d (SI11)</option>
+        <option value="all">Avg all time (SI10+SI11)</option>
+      </select>
+    </label>
+    <div class="spacer"></div>
+    <div class="seg" id="whPlantSeg">
+      <button data-scope="both" class="active">SI10 + SI11</button>
+      <button data-scope="split">Split by plant</button>
+      <button data-scope="SI11">SI11</button>
+      <button data-scope="SI10">SI10</button>
+    </div>
+  </div>
+  <div class="stats" id="whStats"></div>
+  <div class="card">
+    <div class="card-title" id="whChartTitle">Stock evolution</div>
+    <div class="chart-box tall"><canvas id="whChart"></canvas></div>
+    <div class="legend-note">Solid line = actual stock from daily snapshots. Dashed = projection using average usage and confirmed arrivals. Dots mark deliveries; hover for order, quantity and supplier.</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Arrivals this month</div>
+    <div id="whArrivals"></div>
+  </div>
+</div>
+
+<!-- ══════════════ PRODUCTION PLANNING ══════════════ -->
+<div class="page" id="page-planning">
+  <div class="page-head">
+    <div class="page-title">Production Planning</div>
+    <div class="page-sub">Enter next month's production forecast and see how stock reacts</div>
+  </div>
+  <div class="controls">
+    <label class="fld">Plan month
+      <input type="month" id="planMonth">
+    </label>
+    <label class="fld">Forecast consumption
+      <input type="number" id="planTotal" step="any" min="0" style="width:150px" placeholder="0">
+    </label>
+    <label class="fld">Unit
+      <input type="text" id="planUnit" style="width:80px" placeholder="kg">
+    </label>
+    <label class="fld">Spread over
+      <select id="planSpread">
+        <option value="work" selected>Working days (Mon–Fri)</option>
+        <option value="cal">Calendar days</option>
+      </select>
+    </label>
+    <label class="fld">Split basis
+      <select id="planSplitBasis">
+        <option value="90" selected>Usage mix, last 90 d</option>
+        <option value="30">Usage mix, last 30 d</option>
+        <option value="all">Usage mix, all time</option>
+        <option value="manual">Manual (edited below)</option>
+      </select>
+    </label>
+    <div class="spacer"></div>
+    <button class="btn" id="planReset">Reset split</button>
+  </div>
+  <div class="stats" id="planStats"></div>
+  <div class="split">
+    <div>
+      <div class="card">
+        <div class="card-title">Projected stock under this plan</div>
+        <div class="chart-box tall"><canvas id="planChart"></canvas></div>
+        <div class="legend-note">Each material starts from current stock, receives its open orders on their delivery dates and is consumed at the planned daily rate.</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Material requirement &amp; shortfall</div>
+        <div id="planTable"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Split between materials</div>
+      <div class="small" style="margin-bottom:10px">Percentages are derived from historical usage. Edit any value to override — the split basis switches to manual.</div>
+      <div id="planSplit"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ IMPORT ══════════════ -->
+<div class="page" id="page-import">
+  <div class="page-head">
+    <div class="page-title">Import</div>
+    <div class="page-sub">Daily upload — stock, movements, open orders</div>
+  </div>
+  <div class="banner info">
+    Files are parsed in the browser and written straight into the local database. The uploaded file itself is never stored — it is released as soon as the rows are committed. Duplicate files, and duplicate movement rows inside new files, are detected and skipped.
+  </div>
+  <div class="kinds" id="importKinds"></div>
+  <div class="card">
+    <div class="card-title">Upload</div>
+    <div class="drop" id="dropZone">
+      <div class="drop-title">Drop .xlsx / .xls / .csv files here</div>
+      <div class="small">or click to choose — several files at once is fine, each is classified on its own</div>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" multiple hidden>
+    </div>
+    <div id="importStaged"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Import history</div>
+    <div id="importLog"></div>
+  </div>
+</div>
+
+<!-- ══════════════ SETTINGS ══════════════ -->
+<div class="page" id="page-settings">
+  <div class="page-head">
+    <div class="page-title">Settings</div>
+    <div class="page-sub">Column mapping, thresholds and backup</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Plants</div>
+    <div class="small" style="margin-bottom:10px">SI10 is closed and acts as a warehouse only; SI11 is the running plant. Usage averages for 7 and 30 days use SI11 movements only, the all-time average uses both.</div>
+    <div class="row">
+      <label class="fld">Production plant <input type="text" id="setPlantProd" style="width:100px"></label>
+      <label class="fld">Warehouse plant <input type="text" id="setPlantWh" style="width:100px"></label>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Thresholds &amp; behaviour</div>
+    <div class="row">
+      <label class="fld">Critical below (days) <input type="number" id="setCrit" min="0" step="1" style="width:100px"></label>
+      <label class="fld">Low below (days) <input type="number" id="setLow" min="0" step="1" style="width:100px"></label>
+      <label class="fld">Movement sign handling
+        <select id="setSign">
+          <option value="auto">Auto-detect from file</option>
+          <option value="file">Trust the file's signs</option>
+          <option value="type">Derive from movement type</option>
+        </select>
+      </label>
+      <label class="fld">Ignore usage spikes above (× avg)
+        <input type="number" id="setSpike" min="0" step="0.5" style="width:110px" placeholder="0 = off">
+      </label>
+    </div>
+    <div class="small" style="margin-top:10px">SAP exports normally carry signed quantities (receipts positive, issues negative). Auto-detect trusts those signs when it finds negatives, and otherwise applies the sign implied by the movement type.</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Column mapping</div>
+    <div class="small" style="margin-bottom:12px">Set once from your first files and reused for every later upload. Fields marked <i style="color:var(--red);font-style:normal">*</i> are required.</div>
+    <div id="mapEditor"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Data &amp; backup</div>
+    <div id="dataStats" class="small" style="margin-bottom:12px"></div>
+    <div class="row">
+      <button class="btn" id="btnExport">Export backup (JSON)</button>
+      <button class="btn" id="btnImportBackup">Restore backup</button>
+      <input type="file" id="backupInput" accept=".json" hidden>
+      <div class="spacer"></div>
+      <button class="btn danger" id="btnPurgeMoves">Delete movements older than 1 year</button>
+      <button class="btn danger" id="btnWipe">Erase everything</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════
+const MVT = {
+  '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
+  '102': { label: 'GR reversal',              sign: -1, kind: 'receipt' },
+  '251': { label: 'Consumption',              sign: -1, kind: 'usage'   },
+  '252': { label: 'Consumption reversal',     sign: +1, kind: 'usage'   },
+  '301': { label: 'Transfer plant to plant',  sign: -1, kind: 'transfer'},
+  '302': { label: 'Transfer reversal',        sign: +1, kind: 'transfer'},
+  '411': { label: 'Consignment to own stock', sign: +1, kind: 'receipt' },
+};
+const USAGE_MVT = ['251','252'];
+
+const DEFAULTS = {
+  plantProd: 'SI11',
+  plantWh:   'SI10',
+  critDays: 3,
+  lowDays: 7,
+  signMode: 'auto',
+  spikeFactor: 0,
+};
+
+let state = {
+  version: 1,
+  materials: {},   // code -> { code, desc, unit }
+  stock: {},       // plant -> date -> { code: qty }   (daily snapshots)
+  movements: [],   // { key, date, plant, code, mvt, qty (signed), doc, item, ref, partner }
+  orders: [],      // { po, item, code, plant, qty, deliveryDate, vendor, unit }
+  ordersDate: null,
+  imports: [],     // { id, ts, kind, filename, hash, rows, added, skipped }
+  mappings: { stock: {}, movements: {}, orders: {} },
+  settings: { ...DEFAULTS },
+  plan: { month: '', total: 0, unit: '', spread: 'work', basis: '90', split: {} },
+};
+
+let currentPage = 'materials';
+let staged = [];               // files awaiting commit
+const charts = {};
+let matSort = { field: 'days', dir: 'asc' };
+
+// ═══════════════════════════════════════════════════════════
+// STORAGE — IndexedDB
+// ═══════════════════════════════════════════════════════════
+const DB_NAME = 'paperplan';
+const DB_STORE = 'state';
+const DB_KEY = 'main';
+let db = null;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    if (db) return resolve(db);
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore(DB_STORE);
+    req.onsuccess = e => { db = e.target.result; resolve(db); };
+    req.onerror = e => reject(e.target.error);
+  });
+}
+
+function setSaveIndicator(status) {
+  const ind = document.getElementById('saveIndicator');
+  if (!ind) return;
+  if (status === 'saving') { ind.textContent = '● SAVING…'; ind.className = 'save-indicator'; ind.style.color = ''; }
+  else if (status === 'saved') {
+    ind.textContent = '● SAVED'; ind.className = 'save-indicator saved'; ind.style.color = '';
+    setTimeout(() => { ind.textContent = '● AUTO-SAVE ON'; ind.className = 'save-indicator'; }, 1500);
+  } else if (status === 'error') { ind.textContent = '⚠ SAVE FAILED'; ind.style.color = 'var(--red)'; }
+}
+
+let saveTimer = null;
+function saveState(immediate) {
+  clearTimeout(saveTimer);
+  const run = () => {
+    state._lastModified = Date.now();
+    openDB().then(d => {
+      const tx = d.transaction(DB_STORE, 'readwrite');
+      tx.objectStore(DB_STORE).put(JSON.parse(JSON.stringify(state)), DB_KEY);
+      tx.oncomplete = () => setSaveIndicator('saved');
+      tx.onerror = e => { console.error('saveState failed:', e.target.error); setSaveIndicator('error'); };
+    }).catch(e => { console.error('openDB failed:', e); setSaveIndicator('error'); });
+  };
+  if (immediate) run(); else saveTimer = setTimeout(run, 350);
+}
+
+function loadState() {
+  return new Promise(resolve => {
+    openDB().then(d => {
+      const tx = d.transaction(DB_STORE, 'readonly');
+      const req = tx.objectStore(DB_STORE).get(DB_KEY);
+      req.onsuccess = e => {
+        const r = e.target.result;
+        if (r) {
+          state = { ...state, ...r };
+          state.settings = { ...DEFAULTS, ...(r.settings || {}) };
+          state.mappings = { stock: {}, movements: {}, orders: {}, ...(r.mappings || {}) };
+          state.plan = { month: '', total: 0, unit: '', spread: 'work', basis: '90', split: {}, ...(r.plan || {}) };
+        }
+        resolve();
+      };
+      req.onerror = () => resolve();
+    }).catch(() => resolve());
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════
+const PLANT_PROD = () => state.settings.plantProd || 'SI11';
+const PLANT_WH   = () => state.settings.plantWh   || 'SI10';
+const PLANTS     = () => [PLANT_WH(), PLANT_PROD()];
+
+const DAY = 86400000;
+function todayISO() { return toISO(new Date()); }
+function toISO(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function fromISO(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }
+function addDays(iso, n) { const d = fromISO(iso); d.setDate(d.getDate() + n); return toISO(d); }
+function daysBetween(a, b) { return Math.round((fromISO(b) - fromISO(a)) / DAY); }
+function monthKey(iso) { return iso.slice(0, 7); }
+function monthDays(mk) { const [y, m] = mk.split('-').map(Number); return new Date(y, m, 0).getDate(); }
+function isWorkday(iso) { const d = fromISO(iso).getDay(); return d !== 0 && d !== 6; }
+function shortDate(iso) { return iso ? iso.slice(8, 10) + '.' + iso.slice(5, 7) + '.' : ''; }
+
+function fmt(n, dec) {
+  if (n === null || n === undefined || !isFinite(n)) return '—';
+  const d = dec === undefined ? (Math.abs(n) >= 1000 ? 0 : Math.abs(n) >= 10 ? 1 : 2) : dec;
+  return n.toLocaleString('en-GB', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+function fmtDays(n) {
+  if (n === Infinity) return '∞';
+  if (n === null || n === undefined || !isFinite(n)) return '—';
+  return n.toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+function esc(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+async function sha256(buf) {
+  const h = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function download(name, text, mime) {
+  const blob = new Blob([text], { type: mime || 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function materialLabel(code) {
+  const m = state.materials[code];
+  return m && m.desc ? code + ' — ' + m.desc : code;
+}
+function unitOf(code) { const m = state.materials[code]; return (m && m.unit) || ''; }
+
+// ═══════════════════════════════════════════════════════════
+// VALUE COERCION
+// ═══════════════════════════════════════════════════════════
+// SAP exports arrive with European separators, thousand dots, trailing minus
+// and unit suffixes. Everything funnels through here.
+function num(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'number') return isFinite(v) ? v : null;
+  let s = String(v).trim();
+  if (!s) return null;
+  let neg = false;
+  if (/-\s*$/.test(s)) { neg = true; s = s.replace(/-\s*$/, ''); }   // SAP trailing minus
+  s = s.replace(/[^\d,.\-]/g, '');
+  if (!s || s === '-') return null;
+  const lastComma = s.lastIndexOf(','), lastDot = s.lastIndexOf('.');
+  if (lastComma > -1 && lastDot > -1) {
+    // whichever comes last is the decimal separator
+    if (lastComma > lastDot) s = s.replace(/\./g, '').replace(',', '.');
+    else s = s.replace(/,/g, '');
+  } else if (lastComma > -1) {
+    // a single comma: decimal separator unless it looks like a thousands group
+    s = /,\d{3}$/.test(s) && s.replace(/[^\d]/g, '').length > 3 ? s.replace(/,/g, '') : s.replace(',', '.');
+  }
+  const n = parseFloat(s);
+  if (!isFinite(n)) return null;
+  return neg ? -n : n;
+}
+
+// Excel serial dates, ISO, and the dd.mm.yyyy / dd/mm/yyyy family.
+function dateISO(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (v instanceof Date && !isNaN(v)) return toISO(v);
+  if (typeof v === 'number' && isFinite(v)) {
+    if (v > 20000000) return dateISO(String(v));               // 20250825 style
+    if (v > 0 && v < 90000) {                                   // Excel serial
+      const d = new Date(Date.UTC(1899, 11, 30) + v * DAY);
+      return toISO(new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    }
+    return null;
+  }
+  const s = String(v).trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0');
+  m = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
+  if (m) {
+    let y = m[3].length === 2 ? '20' + m[3] : m[3];
+    return y + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
+  }
+  m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m) return m[1] + '-' + m[2] + '-' + m[3];
+  const d = new Date(s);
+  return isNaN(d) ? null : toISO(d);
+}
+
+// Material numbers come back as 000000000012345678 or as a float — normalise.
+function matCode(v) {
+  if (v === null || v === undefined) return '';
+  let s = String(typeof v === 'number' ? Math.round(v) : v).trim();
+  s = s.replace(/\s+/g, ' ');
+  if (/^0+\d+$/.test(s)) s = s.replace(/^0+/, '');
+  return s;
+}
+function plantCode(v) { return String(v === null || v === undefined ? '' : v).trim().toUpperCase(); }
+function mvtCode(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(typeof v === 'number' ? Math.round(v) : v).trim();
+  const m = s.match(/\d{3}/);
+  return m ? m[0] : s;
+}
+
+// ═══════════════════════════════════════════════════════════
+// IMPORT — field schema
+// ═══════════════════════════════════════════════════════════
+// `aliases` are matched against normalised headers (lowercased, accents and
+// punctuation stripped). Exact hits win over substring hits, so a sheet with
+// both "Quantity" and "Quantity received" maps each to the right field.
+const SCHEMA = {
+  stock: {
+    label: 'Current stock',
+    hint: 'One row per material and plant with the stock on hand.',
+    fields: [
+      { k: 'material', label: 'Material',      req: true,  aliases: ['material', 'material number', 'materialnumber', 'matnr', 'sifra', 'sifra materiala', 'artikel', 'item code', 'part number'] },
+      { k: 'plant',    label: 'Plant',         req: true,  aliases: ['plant', 'werk', 'obrat', 'site', 'plnt'] },
+      { k: 'qty',      label: 'Quantity',      req: true,  aliases: ['unrestricted', 'unrestricted use', 'unrestricted stock', 'stock', 'zaloga', 'quantity', 'qty', 'menge', 'kolicina', 'total stock', 'valuated stock', 'on hand'] },
+      { k: 'desc',     label: 'Description',   req: false, aliases: ['material description', 'description', 'opis', 'material desc', 'text', 'bezeichnung', 'naziv'] },
+      { k: 'unit',     label: 'Unit',          req: false, aliases: ['base unit of measure', 'base unit', 'unit', 'uom', 'enota', 'me', 'meins', 'einheit'] },
+      { k: 'date',     label: 'Snapshot date', req: false, aliases: ['date', 'datum', 'snapshot date', 'as of', 'stock date', 'posting date'] },
+      { k: 'sloc',     label: 'Storage loc.',  req: false, aliases: ['storage location', 'sloc', 'stge loc', 'lgort', 'skladisce'] },
+    ],
+  },
+  movements: {
+    label: 'Movements',
+    hint: 'Material document lines — 101/102 receipts, 251/252 usage, 301/302 transfers, 411 consignment.',
+    fields: [
+      { k: 'date',     label: 'Posting date',  req: true,  aliases: ['posting date', 'pstng date', 'document date', 'date', 'datum', 'datum knjizenja', 'buchungsdatum', 'entry date'] },
+      { k: 'material', label: 'Material',      req: true,  aliases: ['material', 'material number', 'matnr', 'sifra', 'sifra materiala', 'artikel'] },
+      { k: 'plant',    label: 'Plant',         req: true,  aliases: ['plant', 'werk', 'obrat', 'site', 'plnt'] },
+      { k: 'mvt',      label: 'Movement type', req: true,  aliases: ['movement type', 'mvt', 'mvt type', 'mvmt type', 'bewegungsart', 'bwart', 'vrsta gibanja', 'gibanje', 'move type', 'mt'] },
+      { k: 'qty',      label: 'Quantity',      req: true,  aliases: ['quantity', 'qty', 'quantity in un', 'quantity in unit of entry', 'menge', 'kolicina', 'amount in un'] },
+      { k: 'desc',     label: 'Description',   req: false, aliases: ['material description', 'description', 'opis', 'text', 'naziv', 'bezeichnung'] },
+      { k: 'unit',     label: 'Unit',          req: false, aliases: ['base unit of measure', 'base unit', 'unit', 'uom', 'enota', 'me'] },
+      { k: 'doc',      label: 'Material doc.', req: false, aliases: ['material document', 'mat document', 'document number', 'doc no', 'mblnr', 'dokument', 'material doc'] },
+      { k: 'item',     label: 'Doc. item',     req: false, aliases: ['item', 'material doc item', 'doc item', 'line', 'postavka', 'zeile', 'pos'] },
+      { k: 'ref',      label: 'Purchase order',req: false, aliases: ['purchase order', 'purchase order no', 'po', 'order', 'reference', 'ebeln', 'narocilo', 'bestellung', 'purchasing document'] },
+      { k: 'partner',  label: 'Supplier',      req: false, aliases: ['vendor', 'supplier', 'dobavitelj', 'lieferant', 'name of vendor', 'customer', 'kupec', 'partner'] },
+      { k: 'rplant',   label: 'Receiving plant', req: false, aliases: ['receiving plant', 'rec plant', 'issuing plant', 'destination plant', 'plant received', 'umwerk', 'ciljni obrat'] },
+    ],
+  },
+  orders: {
+    label: 'Open orders',
+    hint: 'Purchase order lines. Only lines with a GR quantity of 0 are kept.',
+    fields: [
+      { k: 'po',       label: 'Order number',  req: true,  aliases: ['purchasing document', 'purchase order', 'po number', 'po no', 'order', 'ebeln', 'narocilo', 'bestellung', 'document number'] },
+      { k: 'material', label: 'Material',      req: true,  aliases: ['material', 'material number', 'matnr', 'sifra', 'sifra materiala', 'artikel'] },
+      { k: 'qty',      label: 'Order quantity',req: true,  aliases: ['order quantity', 'scheduled quantity', 'ordered quantity', 'quantity', 'qty', 'menge', 'kolicina', 'bestellmenge', 'narocena kolicina'] },
+      { k: 'grQty',    label: 'GR quantity',   req: true,  aliases: ['gr quantity', 'quantity received', 'received quantity', 'delivered qty', 'delivered quantity', 'goods receipt qty', 'gr qty', 'prejeta kolicina', 'wareneingangsmenge', 'del qty'] },
+      { k: 'delivery', label: 'Delivery date', req: true,  aliases: ['delivery date', 'deliv date', 'delivery dt', 'datum dobave', 'lieferdatum', 'scheduled delivery', 'stat delivery date', 'item delivery date', 'date'] },
+      { k: 'plant',    label: 'Plant',         req: false, aliases: ['plant', 'werk', 'obrat', 'site', 'plnt'] },
+      { k: 'item',     label: 'Order item',    req: false, aliases: ['item', 'po item', 'line item', 'postavka', 'pos', 'ebelp'] },
+      { k: 'vendor',   label: 'Supplier',      req: false, aliases: ['vendor', 'supplier', 'name of vendor', 'supplier name', 'dobavitelj', 'lieferant', 'customer', 'kupec', 'name 1'] },
+      { k: 'desc',     label: 'Description',   req: false, aliases: ['material description', 'short text', 'description', 'opis', 'text', 'naziv'] },
+      { k: 'unit',     label: 'Unit',          req: false, aliases: ['order unit', 'base unit of measure', 'unit', 'uom', 'enota', 'me'] },
+    ],
+  },
+};
+const KINDS = ['stock', 'movements', 'orders'];
+
+function normHeader(h) {
+  return String(h === null || h === undefined ? '' : h)
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// Best header for one field: exact alias match beats a substring match, and a
+// header already claimed by another field is not reused.
+function matchField(field, headers, taken) {
+  const normed = headers.map(normHeader);
+  for (const alias of field.aliases) {
+    const i = normed.indexOf(alias);
+    if (i > -1 && !taken.has(headers[i])) return headers[i];
+  }
+  for (const alias of field.aliases) {
+    for (let i = 0; i < normed.length; i++) {
+      if (!normed[i] || taken.has(headers[i])) continue;
+      if (normed[i] === alias || normed[i].includes(alias)) return headers[i];
+    }
+  }
+  return null;
+}
+
+function autoMap(kind, headers) {
+  const map = {}, taken = new Set();
+  // Required fields get first pick so an optional field cannot steal their column.
+  const fields = SCHEMA[kind].fields.slice().sort((a, b) => (b.req ? 1 : 0) - (a.req ? 1 : 0));
+  for (const f of fields) {
+    const h = matchField(f, headers, taken);
+    if (h) { map[f.k] = h; taken.add(h); }
+  }
+  return map;
+}
+
+function mapScore(kind, headers) {
+  const map = autoMap(kind, headers);
+  const fields = SCHEMA[kind].fields;
+  const req = fields.filter(f => f.req);
+  const hit = req.filter(f => map[f.k]).length;
+  if (hit < req.length) return hit / req.length * 0.5;         // incomplete — never wins outright
+  let score = 1 + fields.filter(f => map[f.k]).length * 0.01;
+  if (kind === 'movements' && map.mvt) score += 0.3;           // distinctive columns
+  if (kind === 'orders' && map.grQty && map.po) score += 0.3;
+  return score;
+}
+
+function classify(headers) {
+  let best = null, bestScore = 0;
+  for (const k of KINDS) {
+    const s = mapScore(k, headers);
+    if (s > bestScore) { bestScore = s; best = k; }
+  }
+  return { kind: best, score: bestScore };
+}
+
+// ═══════════════════════════════════════════════════════════
+// IMPORT — workbook reading
+// ═══════════════════════════════════════════════════════════
+// SAP exports frequently carry title/filter rows above the real header, so the
+// header row is the one whose cells match the most known aliases.
+function pickHeaderRow(aoa) {
+  const allAliases = new Set();
+  for (const k of KINDS) for (const f of SCHEMA[k].fields) for (const a of f.aliases) allAliases.add(a);
+  let bestRow = 0, bestScore = -1;
+  const limit = Math.min(aoa.length, 25);
+  for (let r = 0; r < limit; r++) {
+    const row = aoa[r] || [];
+    let score = 0, filled = 0;
+    for (const cell of row) {
+      const n = normHeader(cell);
+      if (!n) continue;
+      filled++;
+      if (allAliases.has(n)) score += 3;
+      else { for (const a of allAliases) { if (n.includes(a)) { score += 1; break; } } }
+    }
+    const total = score + Math.min(filled, 12) * 0.1;
+    if (filled >= 2 && total > bestScore) { bestScore = total; bestRow = r; }
+  }
+  return bestRow;
+}
+
+// SAP CSV exports carry European numbers (1.234.567,50). SheetJS's own type
+// guessing turns those into the wrong value, so text files are read raw and
+// every cell is coerced by num()/dateISO() instead.
+function decodeText(buf) {
+  let t = new TextDecoder('utf-8').decode(buf);
+  if (t.charCodeAt(0) === 0xFEFF) t = t.slice(1);
+  if (t.indexOf('\uFFFD') > -1) {
+    for (const enc of ['windows-1250', 'windows-1252']) {
+      try {
+        const alt = new TextDecoder(enc).decode(buf);
+        if (alt.indexOf('\uFFFD') === -1) return alt;
+      } catch (e) { /* encoding unsupported in this browser */ }
+    }
+  }
+  return t;
+}
+function looksLikeText(bytes, filename) {
+  if (/\.(csv|tsv|txt)$/i.test(filename || '')) return true;
+  if (bytes[0] === 0x50 && bytes[1] === 0x4B) return false;                 // xlsx (zip)
+  if (bytes[0] === 0xD0 && bytes[1] === 0xCF) return false;                 // legacy xls
+  return true;
+}
+
+function readWorkbook(buf, filename) {
+  const wb = looksLikeText(buf, filename)
+    ? XLSX.read(decodeText(buf), { type: 'string', raw: true })
+    : XLSX.read(buf, { type: 'array', cellDates: true, cellText: false });
+  let best = null;
+  for (const name of wb.SheetNames) {
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: null, blankrows: false });
+    if (!aoa.length) continue;
+    const hr = pickHeaderRow(aoa);
+    const headers = [];
+    const seen = {};
+    (aoa[hr] || []).forEach((c, i) => {
+      let h = String(c === null || c === undefined ? '' : c).trim();
+      if (!h) h = 'Column ' + (i + 1);
+      if (seen[h] !== undefined) { seen[h]++; h = h + ' (' + seen[h] + ')'; } else seen[h] = 0;
+      headers.push(h);
+    });
+    const rows = [];
+    for (let r = hr + 1; r < aoa.length; r++) {
+      const arr = aoa[r] || [];
+      if (!arr.some(c => c !== null && c !== undefined && String(c).trim() !== '')) continue;
+      const o = {};
+      headers.forEach((h, i) => { o[h] = arr[i] === undefined ? null : arr[i]; });
+      rows.push(o);
+    }
+    const cls = classify(headers);
+    const cand = { sheet: name, headers, rows, kind: cls.kind, score: cls.score };
+    if (!best || cand.score > best.score || (cand.score === best.score && cand.rows.length > best.rows.length)) best = cand;
+  }
+  return best;
+}
+
+// ═══════════════════════════════════════════════════════════
+// IMPORT — row extraction
+// ═══════════════════════════════════════════════════════════
+function pick(row, map, key) {
+  const h = map[key];
+  if (!h) return null;
+  const v = row[h];
+  return v === '' ? null : v;
+}
+
+function noteMaterial(code, desc, unit) {
+  if (!code) return;
+  const m = state.materials[code] || { code: code, desc: '', unit: '' };
+  if (desc && !m.desc) m.desc = String(desc).trim();
+  if (unit && !m.unit) m.unit = String(unit).trim();
+  state.materials[code] = m;
+}
+
+function extractStock(rows, map, fallbackDate) {
+  const out = [], warn = [];
+  let noDate = 0;
+  for (const r of rows) {
+    const code = matCode(pick(r, map, 'material'));
+    const plant = plantCode(pick(r, map, 'plant'));
+    const qty = num(pick(r, map, 'qty'));
+    if (!code || !plant || qty === null) continue;
+    let date = dateISO(pick(r, map, 'date'));
+    if (!date) { date = fallbackDate; noDate++; }
+    noteMaterial(code, pick(r, map, 'desc'), pick(r, map, 'unit'));
+    out.push({ date, plant, code, qty });
+  }
+  if (noDate && !map.date) warn.push('No snapshot-date column — rows dated ' + fallbackDate + '.');
+  return { rows: out, warn };
+}
+
+function extractMovements(rows, map, signMode) {
+  const out = [], warn = [];
+  const parsed = [];
+  let unknownMvt = 0, badDate = 0;
+  for (const r of rows) {
+    const code = matCode(pick(r, map, 'material'));
+    const mvt = mvtCode(pick(r, map, 'mvt'));
+    const qty = num(pick(r, map, 'qty'));
+    const date = dateISO(pick(r, map, 'date'));
+    const plant = plantCode(pick(r, map, 'plant'));
+    if (!code || !mvt || qty === null) continue;
+    if (!date) { badDate++; continue; }
+    if (!MVT[mvt]) { unknownMvt++; continue; }
+    parsed.push({ r, code, mvt, qty, date, plant });
+  }
+  // Auto sign detection: trust the file when it already distinguishes
+  // receipts from issues, otherwise derive the sign from the movement type.
+  let mode = signMode;
+  if (mode === 'auto') {
+    const anyNeg = parsed.some(p => p.qty < 0);
+    mode = anyNeg ? 'file' : 'type';
+  }
+  for (const p of parsed) {
+    const def = MVT[p.mvt];
+    const signed = mode === 'file' ? p.qty : Math.abs(p.qty) * def.sign;
+    const base = {
+      date: p.date, code: p.code, mvt: p.mvt,
+      doc: pick(p.r, map, 'doc') ? String(pick(p.r, map, 'doc')).trim() : '',
+      item: pick(p.r, map, 'item') ? String(pick(p.r, map, 'item')).trim() : '',
+      ref: pick(p.r, map, 'ref') ? String(pick(p.r, map, 'ref')).trim() : '',
+      partner: pick(p.r, map, 'partner') ? String(pick(p.r, map, 'partner')).trim() : '',
+    };
+    noteMaterial(p.code, pick(p.r, map, 'desc'), pick(p.r, map, 'unit'));
+    out.push({ ...base, plant: p.plant, qty: signed });
+    // A one-step transfer posted with a receiving plant is a single row in the
+    // export but two stock effects — mirror it into the receiving plant.
+    const rp = plantCode(pick(p.r, map, 'rplant'));
+    if (rp && rp !== p.plant && (p.mvt === '301' || p.mvt === '302')) {
+      out.push({ ...base, plant: rp, qty: -signed, mirrored: true });
+    }
+  }
+  if (unknownMvt) warn.push(unknownMvt + ' row(s) with a movement type outside 101/102/251/252/301/302/411 were skipped.');
+  if (badDate) warn.push(badDate + ' row(s) had no readable posting date and were skipped.');
+  warn.push('Signs ' + (mode === 'file' ? 'taken from the file' : 'derived from the movement type') + '.');
+  if (!map.doc) warn.push('No material-document column is mapped, so two identical postings on the same day cannot be told apart — map it if your export has one.');
+  return { rows: out, warn };
+}
+
+function extractOrders(rows, map, fallbackDate) {
+  const out = [], warn = [];
+  let closed = 0, noDate = 0;
+  for (const r of rows) {
+    const code = matCode(pick(r, map, 'material'));
+    const qty = num(pick(r, map, 'qty'));
+    if (!code || qty === null) continue;
+    const grQty = num(pick(r, map, 'grQty'));
+    // Only lines still fully outstanding count as incoming.
+    if (grQty === null || Math.abs(grQty) > 0.0001) { closed++; continue; }
+    if (qty <= 0) { closed++; continue; }
+    let delivery = dateISO(pick(r, map, 'delivery'));
+    if (!delivery) { delivery = fallbackDate; noDate++; }
+    noteMaterial(code, pick(r, map, 'desc'), pick(r, map, 'unit'));
+    out.push({
+      po: String(pick(r, map, 'po') || '').trim(),
+      item: String(pick(r, map, 'item') || '').trim(),
+      code, plant: plantCode(pick(r, map, 'plant')) || PLANT_PROD(),
+      qty, delivery,
+      vendor: String(pick(r, map, 'vendor') || '').trim(),
+      unit: String(pick(r, map, 'unit') || '').trim(),
+    });
+  }
+  if (closed) warn.push(closed + ' line(s) already had a goods receipt (or no quantity) and were ignored.');
+  if (noDate) warn.push(noDate + ' line(s) had no delivery date — dated ' + fallbackDate + '.');
+  return { rows: out, warn };
+}
+
+function movementKey(m) {
+  return [m.date, m.plant, m.code, m.mvt, m.doc, m.item, m.qty.toFixed(3), m.mirrored ? 'M' : ''].join('|');
+}
+
+// ═══════════════════════════════════════════════════════════
+// ANALYTICS
+// ═══════════════════════════════════════════════════════════
+let cache = {};
+function invalidate() { cache = {}; }
+function memo(key, fn) { if (!(key in cache)) cache[key] = fn(); return cache[key]; }
+
+function snapDates(plant) {
+  return memo('snapDates|' + plant, () => Object.keys(state.stock[plant] || {}).sort());
+}
+function latestSnapDate(plant) { const d = snapDates(plant); return d.length ? d[d.length - 1] : null; }
+
+function currentStock(plant) {
+  const d = latestSnapDate(plant);
+  return d ? (state.stock[plant][d] || {}) : {};
+}
+
+function lastMovementDate() {
+  return memo('lastMove', () => {
+    let max = null;
+    for (const m of state.movements) if (!max || m.date > max) max = m.date;
+    return max;
+  });
+}
+function firstMovementDate() {
+  return memo('firstMove', () => {
+    let min = null;
+    for (const m of state.movements) if (!min || m.date < min) min = m.date;
+    return min;
+  });
+}
+
+// code -> plant -> date -> usage (positive = consumed)
+function usageIndex() {
+  return memo('usageIdx', () => {
+    const idx = {};
+    for (const m of state.movements) {
+      if (USAGE_MVT.indexOf(m.mvt) === -1) continue;
+      const byPlant = idx[m.code] || (idx[m.code] = {});
+      const byDate = byPlant[m.plant] || (byPlant[m.plant] = {});
+      byDate[m.date] = (byDate[m.date] || 0) - m.qty;   // 251 is negative, usage is positive
+    }
+    return idx;
+  });
+}
+
+// Average daily usage over a window. `days` may be a number or 'all'.
+// A window of 7 or 30 days looks at the production plant only; 'all' spans both.
+function avgUsage(code, basis) {
+  const idx = usageIndex()[code];
+  if (!idx) return 0;
+  const last = lastMovementDate();
+  if (!last) return 0;
+  let plants, from, to = last, span;
+  if (basis === 'all') {
+    plants = PLANTS();
+    from = firstMovementDate();
+    span = Math.max(1, daysBetween(from, to) + 1);
+  } else {
+    const n = Number(basis) || 30;
+    plants = [PLANT_PROD()];
+    from = addDays(to, -(n - 1));
+    span = n;
+  }
+  const daily = [];
+  for (let i = 0; i < span; i++) {
+    const d = addDays(from, i);
+    if (d > to) break;
+    let v = 0;
+    for (const p of plants) { const bp = idx[p]; if (bp && bp[d]) v += bp[d]; }
+    daily.push(v);
+  }
+  if (!daily.length) return 0;
+  let sum = daily.reduce((a, b) => a + b, 0);
+  const factor = Number(state.settings.spikeFactor) || 0;
+  if (factor > 0) {
+    const mean = sum / daily.length;
+    const kept = daily.filter(v => v <= mean * factor);
+    if (kept.length) return Math.max(0, kept.reduce((a, b) => a + b, 0) / kept.length);
+  }
+  return Math.max(0, sum / daily.length);
+}
+
+// Total usage over the last n days at the production plant (for the split mix).
+function usageTotal(code, basis) {
+  const idx = usageIndex()[code];
+  if (!idx) return 0;
+  const last = lastMovementDate();
+  if (!last) return 0;
+  const plants = basis === 'all' ? PLANTS() : [PLANT_PROD()];
+  const from = basis === 'all' ? firstMovementDate() : addDays(last, -(Number(basis) - 1));
+  let sum = 0;
+  for (const p of plants) {
+    const bp = idx[p]; if (!bp) continue;
+    for (const d in bp) if (d >= from && d <= last) sum += bp[d];
+  }
+  return Math.max(0, sum);
+}
+
+function openOrders() {
+  return memo('openOrders', () => {
+    const by = {};
+    for (const o of state.orders) (by[o.code] || (by[o.code] = [])).push(o);
+    for (const c in by) by[c].sort((a, b) => a.delivery.localeCompare(b.delivery));
+    return by;
+  });
+}
+function onOrderQty(code) {
+  const list = openOrders()[code];
+  return list ? list.reduce((s, o) => s + o.qty, 0) : 0;
+}
+
+function allMaterialCodes() {
+  return memo('allCodes', () => Object.keys(state.materials).sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true })));
+}
+
+function stockScope(code, scope) {
+  const wh = currentStock(PLANT_WH())[code] || 0;
+  const pr = currentStock(PLANT_PROD())[code] || 0;
+  if (scope === PLANT_WH()) return wh;
+  if (scope === PLANT_PROD()) return pr;
+  return wh + pr;
+}
+
+// One row per material for the overview table.
+function materialRows(basis) {
+  const wh = currentStock(PLANT_WH()), pr = currentStock(PLANT_PROD());
+  return allMaterialCodes().map(code => {
+    const qWh = wh[code] || 0, qPr = pr[code] || 0;
+    const total = qWh + qPr;
+    const ordered = onOrderQty(code);
+    const usage = avgUsage(code, basis);
+    const days = usage > 0 ? total / usage : (total > 0 ? Infinity : null);
+    const daysWithOrders = usage > 0 ? (total + ordered) / usage : (total + ordered > 0 ? Infinity : null);
+    return { code, desc: (state.materials[code] || {}).desc || '', unit: unitOf(code),
+             wh: qWh, pr: qPr, total, ordered, usage, days, daysWithOrders };
+  });
+}
+
+function riskLevel(days) {
+  if (days === null || days === Infinity) return 'none';
+  if (days <= (Number(state.settings.critDays) || 3)) return 'crit';
+  if (days <= (Number(state.settings.lowDays) || 7)) return 'warn';
+  return 'ok';
+}
+
+// ── Projection ───────────────────────────────────────────────
+// Walks forward day by day from `start`, subtracting usage and adding the
+// open-order arrivals. `dailyUsage` may be a flat number or a function of date.
+function project(code, opts) {
+  const start = opts.start || todayISO();
+  const days = opts.days || 30;
+  const scope = opts.scope || 'both';
+  let qty = opts.startQty !== undefined ? opts.startQty : stockScope(code, scope);
+  const usageFn = typeof opts.dailyUsage === 'function' ? opts.dailyUsage : () => opts.dailyUsage || 0;
+
+  // Bucket open orders by arrival date; anything already overdue lands on day 0.
+  const buckets = {};
+  const list = (openOrders()[code] || []).filter(o =>
+    scope === 'both' || !o.plant || o.plant === scope || (scope === PLANT_PROD() && !o.plant));
+  for (const o of list) {
+    const d = o.delivery < start ? start : o.delivery;
+    if (daysBetween(start, d) > days) continue;
+    (buckets[d] || (buckets[d] = [])).push({ ...o, overdue: o.delivery < start });
+  }
+
+  const points = [], arrivals = [];
+  let stockout = null;
+  for (let i = 0; i <= days; i++) {
+    const date = addDays(start, i);
+    if (i > 0) qty -= usageFn(date);
+    if (buckets[date]) {
+      const add = buckets[date].reduce((s, o) => s + o.qty, 0);
+      qty += add;
+      arrivals.push({ date, qty: add, orders: buckets[date], level: qty });
+    }
+    if (stockout === null && qty < 0) stockout = date;
+    points.push({ date, qty });
+  }
+  return { points, arrivals, stockout };
+}
+
+// ═══════════════════════════════════════════════════════════
+// CHART HELPERS
+// ═══════════════════════════════════════════════════════════
+function chartBase() {
+  const grid = cssVar('--border');
+  const tick = cssVar('--text-2');
+  return {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { labels: { color: cssVar('--text-1'), font: { family: "'IBM Plex Mono', monospace", size: 11 },
+                          boxWidth: 12, boxHeight: 3, usePointStyle: false } },
+      tooltip: {
+        backgroundColor: cssVar('--bg-1'), borderColor: cssVar('--border-light'), borderWidth: 1,
+        titleColor: cssVar('--text-0'), bodyColor: cssVar('--text-1'), padding: 10,
+        titleFont: { family: "'IBM Plex Mono', monospace", size: 11 },
+        bodyFont: { family: "'IBM Plex Sans', sans-serif", size: 12 },
+      },
+    },
+    scales: {
+      x: { grid: { color: grid, drawBorder: false }, ticks: { color: tick, font: { family: "'IBM Plex Mono', monospace", size: 10 }, maxRotation: 0, autoSkipPadding: 14 } },
+      y: { grid: { color: grid, drawBorder: false }, ticks: { color: tick, font: { family: "'IBM Plex Mono', monospace", size: 10 } }, beginAtZero: true },
+    },
+  };
+}
+function drawChart(id, config) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+  const el = document.getElementById(id);
+  if (!el) return;
+  charts[id] = new Chart(el.getContext('2d'), config);
+}
+function zeroLine(color) {
+  return {
+    id: 'zeroline',
+    afterDatasetsDraw(chart) {
+      const y = chart.scales.y; if (!y || y.min > 0) return;
+      const ctx = chart.ctx, py = y.getPixelForValue(0);
+      ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(chart.chartArea.left, py); ctx.lineTo(chart.chartArea.right, py); ctx.stroke();
+      ctx.restore();
+    },
+  };
+}
+
+// Arrival markers share a tooltip formatter across the forecast and warehouse tabs.
+function arrivalDataset(arrivals, labels, color) {
+  const byDate = {};
+  for (const a of arrivals) byDate[a.date] = a;
+  return {
+    label: 'Arrivals',
+    data: labels.map(d => byDate[d] ? byDate[d].level : null),
+    showLine: false, pointRadius: 6, pointHoverRadius: 8,
+    pointStyle: 'triangle', pointBackgroundColor: color, pointBorderColor: color,
+    _arrivals: byDate,
+  };
+}
+function arrivalTooltip(byDate, labels) {
+  return {
+    label(ctx) {
+      const a = byDate[labels[ctx.dataIndex]];
+      if (!a) return null;
+      const lines = ['Arriving: ' + fmt(a.qty)];
+      for (const o of a.orders) {
+        lines.push('  ' + (o.po || 'order') + (o.item ? '/' + o.item : '') + ' · ' + fmt(o.qty) +
+                   (o.vendor ? ' · ' + o.vendor : '') + (o.overdue ? ' · overdue' : ''));
+      }
+      return lines;
+    },
+  };
+}
+
+// ═══════════════════════════════════════════════════════════
+// PAGE: ALL MATERIALS
+// ═══════════════════════════════════════════════════════════
+const MAT_COLS = [
+  { k: 'code',    label: 'Material',   cls: 'mono' },
+  { k: 'desc',    label: 'Description',cls: 'desc-cell' },
+  { k: 'wh',      label: 'SI10',       cls: 'num' },
+  { k: 'pr',      label: 'SI11',       cls: 'num' },
+  { k: 'total',   label: 'Total',      cls: 'num' },
+  { k: 'ordered', label: 'On order',   cls: 'num' },
+  { k: 'usage',   label: 'Avg / day',  cls: 'num' },
+  { k: 'days',    label: 'Days left',  cls: 'num' },
+  { k: 'daysWithOrders', label: 'Days incl. orders', cls: 'num' },
+];
+
+function renderMaterials() {
+  const basis = document.getElementById('matUsageBasis').value;
+  const q = document.getElementById('matSearch').value.trim().toLowerCase();
+  const filter = document.getElementById('matFilter').value;
+  let rows = materialRows(basis);
+
+  document.getElementById('materialsSub').textContent =
+    latestSnapDate(PLANT_PROD()) || latestSnapDate(PLANT_WH())
+      ? 'Stock as of ' + (latestSnapDate(PLANT_PROD()) || latestSnapDate(PLANT_WH())) +
+        (state.ordersDate ? ' · orders as of ' + state.ordersDate : '')
+      : '';
+
+  // Stat tiles reflect the whole catalogue, before search/filter narrowing.
+  const totalStock = rows.reduce((s, r) => s + r.total, 0);
+  const totalOrder = rows.reduce((s, r) => s + r.ordered, 0);
+  const crit = rows.filter(r => riskLevel(r.days) === 'crit').length;
+  const low  = rows.filter(r => riskLevel(r.days) === 'warn').length;
+  document.getElementById('materialsStats').innerHTML = [
+    tile('Materials tracked', fmt(rows.length, 0)),
+    tile('Stock on hand', fmt(totalStock, 0), PLANT_WH() + ' ' + fmt(rows.reduce((s, r) => s + r.wh, 0), 0) + ' · ' + PLANT_PROD() + ' ' + fmt(rows.reduce((s, r) => s + r.pr, 0), 0)),
+    tile('On order', fmt(totalOrder, 0), state.orders.length + ' open line(s)'),
+    tile('Critical', fmt(crit, 0), '≤ ' + state.settings.critDays + ' days of cover', crit ? 'danger' : ''),
+    tile('Low', fmt(low, 0), '≤ ' + state.settings.lowDays + ' days of cover', low ? 'accent' : ''),
+  ].join('');
+
+  if (filter === 'active')    rows = rows.filter(r => r.total !== 0 || r.ordered !== 0);
+  else if (filter === 'risk') rows = rows.filter(r => ['crit', 'warn'].indexOf(riskLevel(r.days)) > -1);
+  else if (filter === 'zero') rows = rows.filter(r => r.total === 0);
+  if (q) rows = rows.filter(r => r.code.toLowerCase().includes(q) || r.desc.toLowerCase().includes(q));
+
+  const dir = matSort.dir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    let x = a[matSort.field], y = b[matSort.field];
+    if (matSort.field === 'days' || matSort.field === 'daysWithOrders') {
+      // Nothing-to-run-out and no-usage rows sort last either way.
+      x = x === null ? Number.MAX_VALUE : (x === Infinity ? Number.MAX_VALUE - 1 : x);
+      y = y === null ? Number.MAX_VALUE : (y === Infinity ? Number.MAX_VALUE - 1 : y);
+    }
+    if (typeof x === 'string') return x.localeCompare(y, undefined, { numeric: true }) * dir;
+    return ((x || 0) - (y || 0)) * dir;
+  });
+
+  const host = document.getElementById('materialsBody');
+  if (!rows.length) {
+    host.innerHTML = emptyState('No materials to show',
+      state.movements.length || Object.keys(state.materials).length
+        ? 'Nothing matches the current filter.'
+        : 'Import a stock file on the Import tab to get started.');
+    return;
+  }
+
+  const head = MAT_COLS.map(c =>
+    '<th class="sortable' + (c.cls === 'num' ? ' num' : '') + '" data-sort="' + c.k + '">' +
+    esc(c.k === 'wh' ? PLANT_WH() : c.k === 'pr' ? PLANT_PROD() : c.label) +
+    (matSort.field === c.k ? (matSort.dir === 'asc' ? ' ▲' : ' ▼') : '') + '</th>').join('');
+
+  const maxDays = 30;
+  const body = rows.map(r => {
+    const lvl = riskLevel(r.days);
+    const col = lvl === 'crit' ? 'var(--red)' : lvl === 'warn' ? 'var(--amber)' : 'var(--green)';
+    const pct = r.days === null ? 0 : Math.min(100, (r.days === Infinity ? maxDays : r.days) / maxDays * 100);
+    return '<tr class="clickable" data-code="' + esc(r.code) + '">' +
+      '<td class="mono">' + esc(r.code) + '</td>' +
+      '<td class="desc-cell">' + esc(r.desc || '—') + '</td>' +
+      '<td class="num' + (r.wh ? '' : ' muted') + '">' + fmt(r.wh, 0) + '</td>' +
+      '<td class="num' + (r.pr ? '' : ' muted') + '">' + fmt(r.pr, 0) + '</td>' +
+      '<td class="num"><strong>' + fmt(r.total, 0) + '</strong>' + (r.unit ? ' <span class="muted" style="font-size:10px">' + esc(r.unit) + '</span>' : '') + '</td>' +
+      '<td class="num' + (r.ordered ? '' : ' muted') + '">' + (r.ordered ? fmt(r.ordered, 0) : '—') + '</td>' +
+      '<td class="num">' + (r.usage ? fmt(r.usage) : '<span class="muted">—</span>') + '</td>' +
+      '<td class="num"><div class="days-bar"><div class="days-track"><div class="days-fill" style="width:' + pct + '%;background:' + col + '"></div></div>' +
+        '<span style="color:' + (lvl === 'none' ? 'var(--text-2)' : col) + '">' + fmtDays(r.days) + '</span></div></td>' +
+      '<td class="num muted">' + fmtDays(r.daysWithOrders) + '</td>' +
+    '</tr>';
+  }).join('');
+
+  host.innerHTML = '<div class="table-wrap"><table><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>' +
+    '<div class="small" style="margin-top:8px">' + rows.length + ' material(s) shown. Click a row to open its forecast. ' +
+    '“Days left” divides total stock by the selected average usage.</div>';
+
+  host.querySelectorAll('th.sortable').forEach(th => th.onclick = () => {
+    const f = th.dataset.sort;
+    if (matSort.field === f) matSort.dir = matSort.dir === 'asc' ? 'desc' : 'asc';
+    else matSort = { field: f, dir: f === 'code' || f === 'desc' ? 'asc' : 'desc' };
+    renderMaterials();
+  });
+  host.querySelectorAll('tr.clickable').forEach(tr => tr.onclick = () => {
+    document.getElementById('fcMaterial').value = tr.dataset.code;
+    go('forecast');
+  });
+}
+
+function tile(label, value, note, cls) {
+  return '<div class="stat' + (cls ? ' ' + cls : '') + '"><div class="stat-label">' + esc(label) + '</div>' +
+    '<div class="stat-value">' + value + '</div>' +
+    (note ? '<div class="stat-note">' + esc(note) + '</div>' : '') + '</div>';
+}
+function emptyState(title, msg) {
+  return '<div class="empty"><div class="empty-icon">▤</div><div class="empty-title">' + esc(title) + '</div>' +
+    '<div class="small">' + esc(msg) + '</div></div>';
+}
+
+function exportMaterialsCSV() {
+  const basis = document.getElementById('matUsageBasis').value;
+  const rows = materialRows(basis);
+  const head = ['Material', 'Description', 'Unit', PLANT_WH(), PLANT_PROD(), 'Total', 'On order', 'Avg per day', 'Days left', 'Days incl orders'];
+  const lines = [head.join(';')];
+  for (const r of rows) {
+    lines.push([r.code, '"' + String(r.desc).replace(/"/g, '""') + '"', r.unit,
+      r.wh, r.pr, r.total, r.ordered, r.usage.toFixed(3),
+      r.days === Infinity ? 'inf' : r.days === null ? '' : r.days.toFixed(1),
+      r.daysWithOrders === Infinity ? 'inf' : r.daysWithOrders === null ? '' : r.daysWithOrders.toFixed(1)].join(';'));
+  }
+  download('materials-' + todayISO() + '.csv', lines.join('\n'), 'text/csv');
+}
+
+// ═══════════════════════════════════════════════════════════
+// PAGE: MATERIAL FORECAST
+// ═══════════════════════════════════════════════════════════
+function fillMaterialSelect(sel, keepAll) {
+  const prev = sel.value;
+  const codes = allMaterialCodes();
+  const opts = (keepAll ? '<option value="__all__">All materials (total)</option>' : '') +
+    codes.map(c => '<option value="' + esc(c) + '">' + esc(materialLabel(c)) + '</option>').join('');
+  sel.innerHTML = opts || '<option value="">— no materials imported —</option>';
+  if (prev && (prev === '__all__' || codes.indexOf(prev) > -1)) sel.value = prev;
+}
+
+function renderForecast() {
+  const sel = document.getElementById('fcMaterial');
+  const code = sel.value;
+  const basis = document.getElementById('fcBasis').value;
+  const days = Number(document.getElementById('fcDays').value);
+  const scope = document.getElementById('fcScope').value;
+  const statsHost = document.getElementById('fcStats');
+  const ordersHost = document.getElementById('fcOrders');
+
+  if (!code) {
+    statsHost.innerHTML = '';
+    ordersHost.innerHTML = emptyState('No material selected', 'Import data first, then pick a material here.');
+    if (charts.fcChart) { charts.fcChart.destroy(); delete charts.fcChart; }
+    return;
+  }
+
+  const unit = unitOf(code);
+  const u7 = avgUsage(code, '7'), u30 = avgUsage(code, '30'), uAll = avgUsage(code, 'all');
+  const cur = stockScope(code, scope);
+  const used = basis === '7' ? u7 : basis === 'all' ? uAll : u30;
+  const ordered = onOrderQty(code);
+
+  document.getElementById('fcChartTitle').textContent = materialLabel(code);
+  statsHost.innerHTML = [
+    tile('Current stock', fmt(cur, 0) + (unit ? '<span class="stat-unit">' + esc(unit) + '</span>' : ''),
+         PLANT_WH() + ' ' + fmt(currentStock(PLANT_WH())[code] || 0, 0) + ' · ' + PLANT_PROD() + ' ' + fmt(currentStock(PLANT_PROD())[code] || 0, 0)),
+    tile('Avg usage · 7 days', fmt(u7), PLANT_PROD() + ' only'),
+    tile('Avg usage · 30 days', fmt(u30), PLANT_PROD() + ' only'),
+    tile('Avg usage · all time', fmt(uAll), PLANTS().join(' + ') + (firstMovementDate() ? ' · since ' + firstMovementDate() : '')),
+    tile('On order', fmt(ordered, 0), (openOrders()[code] || []).length + ' open line(s)'),
+    tile('Cover', fmtDays(used > 0 ? cur / used : (cur > 0 ? Infinity : null)) + '<span class="stat-unit">days</span>',
+         'at ' + fmt(used) + ' / day', riskLevel(used > 0 ? cur / used : null) === 'crit' ? 'danger' : riskLevel(used > 0 ? cur / used : null) === 'warn' ? 'accent' : ''),
+  ].join('');
+
+  const proj = project(code, { days, scope, dailyUsage: used });
+  const labels = proj.points.map(p => p.date);
+  const byDate = {};
+  for (const a of proj.arrivals) byDate[a.date] = a;
+
+  const opt = chartBase();
+  opt.scales.y.beginAtZero = false;
+  opt.plugins.tooltip.callbacks = {
+    title: items => shortDate(labels[items[0].dataIndex]),
+    label(ctx) {
+      if (ctx.datasetIndex === 1) {
+        const a = byDate[labels[ctx.dataIndex]];
+        if (!a) return null;
+        return arrivalTooltip(byDate, labels).label(ctx);
+      }
+      return 'Stock: ' + fmt(ctx.parsed.y) + (unit ? ' ' + unit : '');
+    },
+  };
+  opt.scales.x.ticks.callback = function (v, i) { return i % Math.ceil(labels.length / 15) === 0 ? shortDate(labels[i]) : ''; };
+
+  drawChart('fcChart', {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Projected stock', data: proj.points.map(p => p.qty),
+          borderColor: cssVar('--amber'), backgroundColor: cssVar('--amber-glow'),
+          borderWidth: 2, fill: true, tension: .15, pointRadius: 0, pointHoverRadius: 4 },
+        Object.assign(arrivalDataset(proj.arrivals, labels, cssVar('--blue')), { type: 'line', borderColor: 'transparent' }),
+      ],
+    },
+    options: opt,
+    plugins: [zeroLine(cssVar('--red'))],
+  });
+
+  const list = openOrders()[code] || [];
+  if (!list.length) {
+    ordersHost.innerHTML = '<div class="small">No open purchase orders for this material.</div>';
+  } else {
+    ordersHost.innerHTML = '<div class="table-wrap"><table><thead><tr>' +
+      '<th>Order</th><th>Item</th><th>Plant</th><th class="num">Quantity</th><th>Delivery</th><th>Days out</th><th>Supplier</th>' +
+      '</tr></thead><tbody>' + list.map(o => {
+        const dd = daysBetween(todayISO(), o.delivery);
+        return '<tr><td class="mono">' + esc(o.po) + '</td><td class="mono muted">' + esc(o.item || '—') + '</td>' +
+          '<td><span class="pill ' + (o.plant === PLANT_WH() ? 'si10' : 'si11') + '">' + esc(o.plant) + '</span></td>' +
+          '<td class="num">' + fmt(o.qty, 0) + '</td>' +
+          '<td class="mono">' + esc(o.delivery) + '</td>' +
+          '<td class="mono ' + (dd < 0 ? '' : 'muted') + '" style="' + (dd < 0 ? 'color:var(--red)' : '') + '">' +
+            (dd < 0 ? Math.abs(dd) + ' d overdue' : dd === 0 ? 'today' : 'in ' + dd + ' d') + '</td>' +
+          '<td class="muted">' + esc(o.vendor || '—') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+
+  if (proj.stockout) {
+    ordersHost.insertAdjacentHTML('beforebegin',
+      '<div class="banner err" style="margin-bottom:0">Projected to run out on <strong>' + esc(proj.stockout) +
+      '</strong> (' + daysBetween(todayISO(), proj.stockout) + ' days out) at ' + fmt(used) + ' per day, open orders included.</div>');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PAGE: WAREHOUSE MOVEMENT
+// ═══════════════════════════════════════════════════════════
+let whScope = 'both';
+
+// Actual stock for one plant across a date range, carried forward between
+// snapshots. Returns null for dates before the first snapshot.
+function actualSeries(plant, code, dates) {
+  const snaps = snapDates(plant);
+  if (!snaps.length) return dates.map(() => null);
+  let si = -1;
+  const out = [];
+  for (const d of dates) {
+    while (si + 1 < snaps.length && snaps[si + 1] <= d) si++;
+    if (si < 0) { out.push(null); continue; }
+    const snap = state.stock[plant][snaps[si]] || {};
+    out.push(code === '__all__'
+      ? Object.values(snap).reduce((a, b) => a + b, 0)
+      : (snap[code] || 0));
+  }
+  return out;
+}
+
+function renderWarehouse() {
+  const mk = document.getElementById('whMonth').value || monthKey(todayISO());
+  const code = document.getElementById('whMaterial').value || '__all__';
+  const basis = document.getElementById('whBasis').value;
+  const today = todayISO();
+
+  const nDays = monthDays(mk);
+  const dates = [];
+  for (let i = 1; i <= nDays; i++) dates.push(mk + '-' + String(i).padStart(2, '0'));
+  const first = dates[0], last = dates[dates.length - 1];
+
+  // Usage rate for the projected part of the month.
+  const codes = code === '__all__' ? allMaterialCodes() : [code];
+  const usage = codes.reduce((s, c) => s + avgUsage(c, basis), 0);
+
+  // Actual, per plant.
+  const actWh = actualSeries(PLANT_WH(), code, dates);
+  const actPr = actualSeries(PLANT_PROD(), code, dates);
+
+  // Projection starts from the last actual point inside the month that is not
+  // in the future, and runs to month end.
+  const cutIdx = Math.max(0, Math.min(dates.length - 1, dates.findIndex(d => d > today) === -1 ? dates.length - 1 : dates.findIndex(d => d > today) - 1));
+  const inFuture = first > today;
+  const projStart = inFuture ? today : dates[cutIdx];
+
+  // Arrivals across the month, from open orders.
+  // An order whose delivery date has already passed is still outstanding, so it
+  // lands on the projection start rather than disappearing from it. In a month
+  // that is entirely in the past the real dates are kept — that view is history.
+  const monthIsCurrentOrFuture = last >= today;
+  const arrivalsByDate = {};
+  for (const c of codes) {
+    for (const o of (openOrders()[c] || [])) {
+      if (whScope !== 'both' && whScope !== 'split' && o.plant && o.plant !== whScope) continue;
+      let eff = o.delivery;
+      if (monthIsCurrentOrFuture && eff < projStart) eff = projStart;
+      if (eff < first || eff > last) continue;
+      (arrivalsByDate[eff] || (arrivalsByDate[eff] = [])).push(
+        o.delivery < projStart && monthIsCurrentOrFuture ? { ...o, overdue: true } : o);
+    }
+  }
+
+  function buildProjection(startQty) {
+    const out = dates.map(() => null);
+    if (startQty === null || startQty === undefined) return out;
+    let q = startQty;
+    for (let i = 0; i < dates.length; i++) {
+      const d = dates[i];
+      if (d < projStart) continue;
+      if (d > projStart) q -= usage;
+      const arr = arrivalsByDate[d];
+      if (arr) q += arr.reduce((s, o) => s + o.qty, 0);
+      out[i] = q;
+    }
+    return out;
+  }
+
+  const datasets = [];
+  const cWh = cssVar('--c-si10'), cPr = cssVar('--c-si11'), cTot = cssVar('--amber');
+
+  function actualForScope() {
+    if (whScope === PLANT_WH()) return actWh;
+    if (whScope === PLANT_PROD()) return actPr;
+    return dates.map((d, i) => (actWh[i] === null && actPr[i] === null) ? null : (actWh[i] || 0) + (actPr[i] || 0));
+  }
+
+  if (whScope === 'split') {
+    datasets.push(lineDs(PLANT_WH() + ' actual', maskFuture(actWh, dates, today), cWh, false));
+    datasets.push(lineDs(PLANT_PROD() + ' actual', maskFuture(actPr, dates, today), cPr, false));
+    datasets.push(lineDs(PLANT_PROD() + ' projected', buildProjection(actPr[cutIdx]), cPr, true));
+  } else {
+    const act = maskFuture(actualForScope(), dates, today);
+    const startQty = actualForScope()[cutIdx];
+    datasets.push(lineDs('Actual stock', act, cTot, false, true));
+    datasets.push(lineDs('Projected', buildProjection(inFuture ? scopeStockFor(code, whScope) : startQty), cTot, true));
+  }
+
+  // Arrival markers sit on the line they belong to.
+  const line = datasets[datasets.length - 1].data;
+  const prevLine = datasets[0].data;
+  const arrivals = Object.keys(arrivalsByDate).sort().map(d => {
+    const i = dates.indexOf(d);
+    const orders = arrivalsByDate[d];
+    const lvl = (line[i] !== null && line[i] !== undefined) ? line[i] : (prevLine[i] !== null && prevLine[i] !== undefined ? prevLine[i] : 0);
+    return { date: d, qty: orders.reduce((s, o) => s + o.qty, 0), orders, level: lvl };
+  });
+  const byDate = {};
+  for (const a of arrivals) byDate[a.date] = a;
+  if (arrivals.length) {
+    datasets.push(Object.assign(arrivalDataset(arrivals, dates, cssVar('--blue')), { type: 'line', borderColor: 'transparent' }));
+  }
+
+  const opt = chartBase();
+  opt.scales.y.beginAtZero = false;
+  opt.scales.x.ticks.callback = (v, i) => dates[i].slice(8);
+  opt.plugins.tooltip.callbacks = {
+    title: items => dates[items[0].dataIndex],
+    label(ctx) {
+      if (ctx.dataset.label === 'Arrivals') return arrivalTooltip(byDate, dates).label(ctx);
+      if (ctx.parsed.y === null) return null;
+      return ctx.dataset.label + ': ' + fmt(ctx.parsed.y);
+    },
+  };
+
+  document.getElementById('whChartTitle').textContent =
+    (code === '__all__' ? 'All materials' : materialLabel(code)) + ' · ' + mk;
+
+  drawChart('whChart', { type: 'line', data: { labels: dates, datasets }, options: opt, plugins: [zeroLine(cssVar('--red'))] });
+
+  // Stat tiles for the month.
+  const monthReceipts = sumMovements(codes, mk, m => MVT[m.mvt].kind === 'receipt');
+  const monthUsage = -sumMovements(codes, mk, m => USAGE_MVT.indexOf(m.mvt) > -1);
+  const monthTransfers = sumMovements(codes, mk, m => MVT[m.mvt].kind === 'transfer' && m.plant === PLANT_PROD());
+  const incoming = arrivals.reduce((s, a) => s + a.qty, 0);
+  document.getElementById('whStats').innerHTML = [
+    tile('Received this month', fmt(monthReceipts, 0), '101 / 102 / 411 postings'),
+    tile('Consumed this month', fmt(monthUsage, 0), '251 / 252 postings'),
+    tile('Moved ' + PLANT_WH() + ' → ' + PLANT_PROD(), fmt(monthTransfers, 0), '301 / 302 postings'),
+    tile('Still to arrive', fmt(incoming, 0), arrivals.length + ' delivery date(s)'),
+    tile('Projected month end', fmt(lastNonNull(datasets[whScope === 'split' ? 2 : 1].data), 0), 'at ' + fmt(usage) + ' / day'),
+  ].join('');
+
+  // Arrivals table.
+  const host = document.getElementById('whArrivals');
+  if (!arrivals.length) host.innerHTML = '<div class="small">No open orders due in ' + mk + '.</div>';
+  else host.innerHTML = '<div class="table-wrap"><table><thead><tr>' +
+    '<th>Date</th><th>Order</th><th>Material</th><th class="num">Quantity</th><th>Plant</th><th>Supplier</th>' +
+    '</tr></thead><tbody>' + arrivals.flatMap(a => a.orders.map(o =>
+      '<tr><td class="mono">' + esc(a.date) + '</td><td class="mono">' + esc(o.po) + (o.item ? '<span class="muted">/' + esc(o.item) + '</span>' : '') + '</td>' +
+      '<td>' + esc(materialLabel(o.code)) + '</td><td class="num">' + fmt(o.qty, 0) + '</td>' +
+      '<td><span class="pill ' + (o.plant === PLANT_WH() ? 'si10' : 'si11') + '">' + esc(o.plant) + '</span></td>' +
+      '<td class="muted">' + esc(o.vendor || '—') + '</td></tr>')).join('') + '</tbody></table></div>';
+}
+
+function lineDs(label, data, color, dashed, fill) {
+  return {
+    label, data, borderColor: color,
+    backgroundColor: fill ? color + '22' : 'transparent',
+    borderWidth: 2, borderDash: dashed ? [5, 4] : [], fill: !!fill,
+    tension: .15, pointRadius: 0, pointHoverRadius: 4, spanGaps: false,
+  };
+}
+function scopeStockFor(code, scope) {
+  if (code !== '__all__') return stockScope(code, scope === 'split' ? 'both' : scope);
+  const sum = o => Object.values(o).reduce((a, b) => a + b, 0);
+  const wh = sum(currentStock(PLANT_WH())), pr = sum(currentStock(PLANT_PROD()));
+  if (scope === PLANT_WH()) return wh;
+  if (scope === PLANT_PROD()) return pr;
+  return wh + pr;
+}
+function maskFuture(arr, dates, today) { return arr.map((v, i) => dates[i] > today ? null : v); }
+function lastNonNull(arr) { for (let i = arr.length - 1; i >= 0; i--) if (arr[i] !== null && arr[i] !== undefined) return arr[i]; return null; }
+
+function sumMovements(codes, mk, pred) {
+  const set = new Set(codes);
+  let s = 0;
+  for (const m of state.movements) {
+    if (!m.date.startsWith(mk)) continue;
+    if (!set.has(m.code)) continue;
+    if (!pred(m)) continue;
+    s += m.qty;
+  }
+  return s;
+}
+
+// ═══════════════════════════════════════════════════════════
+// PAGE: PRODUCTION PLANNING
+// ═══════════════════════════════════════════════════════════
+// The forecast is a single monthly tonnage. It is split across materials by
+// their historical usage mix (editable), turned into a daily rate, and run
+// through the same projection as the forecast tab.
+function computedSplit(basis) {
+  const totals = {};
+  let sum = 0;
+  for (const c of allMaterialCodes()) {
+    const t = usageTotal(c, basis);
+    if (t > 0) { totals[c] = t; sum += t; }
+  }
+  const out = {};
+  if (!sum) return out;
+  for (const c in totals) out[c] = totals[c] / sum * 100;
+  return out;
+}
+function effectiveSplit() {
+  const basis = state.plan.basis || '90';
+  if (basis === 'manual') return { ...(state.plan.split || {}) };
+  return computedSplit(basis);
+}
+
+function spreadDays(mk, mode) {
+  const n = monthDays(mk);
+  let c = 0;
+  for (let i = 1; i <= n; i++) {
+    const d = mk + '-' + String(i).padStart(2, '0');
+    if (mode === 'cal' || isWorkday(d)) c++;
+  }
+  return c || n;
+}
+
+function renderPlanning() {
+  const mk = state.plan.month || monthKey(addDays(todayISO(), 30));
+  const total = Number(state.plan.total) || 0;
+  const mode = state.plan.spread || 'work';
+  const split = effectiveSplit();
+  const unit = state.plan.unit || '';
+
+  const monthStart = mk + '-01';
+  const monthEnd = mk + '-' + String(monthDays(mk)).padStart(2, '0');
+  const start = todayISO() < monthStart ? todayISO() : monthStart;
+  const horizon = Math.max(1, daysBetween(start, monthEnd));
+  const nSpread = spreadDays(mk, mode);
+
+  const codes = Object.keys(split).filter(c => split[c] > 0);
+  const rows = [];
+  const seriesByCode = {};
+  let firstShort = null;
+
+  for (const code of codes) {
+    const pct = split[code];
+    const need = total * pct / 100;
+    const daily = nSpread ? need / nSpread : 0;
+    const preRate = avgUsage(code, '30') || avgUsage(code, 'all');
+    const proj = project(code, {
+      start, days: horizon, scope: 'both',
+      dailyUsage: date => {
+        if (date < monthStart) return preRate;                       // run-up to the plan month
+        if (mode === 'work' && !isWorkday(date)) return 0;
+        return daily;
+      },
+    });
+    seriesByCode[code] = proj;
+    const cur = stockScope(code, 'both');
+    const incoming = (openOrders()[code] || [])
+      .filter(o => o.delivery <= monthEnd).reduce((s, o) => s + o.qty, 0);
+    const closing = proj.points[proj.points.length - 1].qty;
+    if (proj.stockout && (!firstShort || proj.stockout < firstShort)) firstShort = proj.stockout;
+    rows.push({ code, pct, need, daily, cur, incoming, closing, stockout: proj.stockout,
+                shortfall: closing < 0 ? -closing : 0, unit: unitOf(code) });
+  }
+
+  rows.sort((a, b) => {
+    if (!!a.stockout !== !!b.stockout) return a.stockout ? -1 : 1;
+    if (a.stockout && b.stockout && a.stockout !== b.stockout) return a.stockout.localeCompare(b.stockout);
+    return b.need - a.need;
+  });
+
+  // ── stats ──
+  const atRisk = rows.filter(r => r.stockout).length;
+  const pctSum = codes.reduce((s, c) => s + split[c], 0);
+  document.getElementById('planStats').innerHTML = [
+    tile('Plan month', mk, nSpread + ' ' + (mode === 'work' ? 'working' : 'calendar') + ' days'),
+    tile('Forecast consumption', fmt(total, 0) + (unit ? '<span class="stat-unit">' + esc(unit) + '</span>' : ''),
+         total ? fmt(total / nSpread, 0) + ' per day' : 'enter a quantity above'),
+    tile('Materials in plan', fmt(codes.length, 0), 'split total ' + fmt(pctSum, 1) + ' %',
+         Math.abs(pctSum - 100) > 0.5 && codes.length ? 'accent' : ''),
+    tile('Short before month end', fmt(atRisk, 0), atRisk ? 'see table below' : 'plan is covered', atRisk ? 'danger' : ''),
+    tile('First shortage', firstShort || '—', firstShort ? daysBetween(todayISO(), firstShort) + ' days out' : 'none projected',
+         firstShort ? 'danger' : ''),
+  ].join('');
+
+  // ── chart: total line plus every material that runs short ──
+  const dates = [];
+  for (let i = 0; i <= horizon; i++) dates.push(addDays(start, i));
+  const totalSeries = dates.map((d, i) =>
+    codes.reduce((s, c) => s + (seriesByCode[c].points[i] ? seriesByCode[c].points[i].qty : 0), 0));
+
+  const shortCodes = rows.filter(r => r.stockout).slice(0, 6).map(r => r.code);
+  const palette = ['--red', '--orange', '--purple', '--pink', '--blue', '--teal'].map(cssVar);
+  const datasets = [lineDs('Total stock, all planned materials', totalSeries, cssVar('--amber'), false, true)];
+  shortCodes.forEach((c, i) => {
+    datasets.push(lineDs(c + ' — short from ' + seriesByCode[c].stockout,
+      seriesByCode[c].points.map(p => p.qty), palette[i % palette.length], true));
+  });
+
+  const opt = chartBase();
+  opt.scales.y.beginAtZero = false;
+  opt.scales.x.ticks.callback = (v, i) => i % Math.ceil(dates.length / 15) === 0 ? shortDate(dates[i]) : '';
+  opt.plugins.tooltip.callbacks = {
+    title: items => dates[items[0].dataIndex],
+    label: ctx => ctx.dataset.label.split(' — ')[0] + ': ' + fmt(ctx.parsed.y),
+  };
+  if (!codes.length || !total) {
+    if (charts.planChart) { charts.planChart.destroy(); delete charts.planChart; }
+  } else {
+    drawChart('planChart', { type: 'line', data: { labels: dates, datasets }, options: opt, plugins: [zeroLine(cssVar('--red'))] });
+  }
+
+  // ── requirement table ──
+  const tHost = document.getElementById('planTable');
+  if (!rows.length) {
+    tHost.innerHTML = emptyState('Nothing to plan yet',
+      'Import movements so the app can work out the usage mix, then enter a forecast quantity.');
+  } else {
+    tHost.innerHTML = '<div class="table-wrap"><table><thead><tr>' +
+      '<th>Material</th><th class="num">Split %</th><th class="num">Required</th><th class="num">Per day</th>' +
+      '<th class="num">Stock now</th><th class="num">Incoming</th><th class="num">Month end</th><th>Runs out</th>' +
+      '</tr></thead><tbody>' + rows.map(r =>
+        '<tr><td><span class="mono">' + esc(r.code) + '</span> <span class="muted">' + esc((state.materials[r.code] || {}).desc || '') + '</span></td>' +
+        '<td class="num">' + fmt(r.pct, 1) + '</td>' +
+        '<td class="num">' + fmt(r.need, 0) + '</td>' +
+        '<td class="num muted">' + fmt(r.daily) + '</td>' +
+        '<td class="num">' + fmt(r.cur, 0) + '</td>' +
+        '<td class="num' + (r.incoming ? '' : ' muted') + '">' + (r.incoming ? fmt(r.incoming, 0) : '—') + '</td>' +
+        '<td class="num" style="' + (r.closing < 0 ? 'color:var(--red);font-weight:600' : '') + '">' + fmt(r.closing, 0) + '</td>' +
+        '<td>' + (r.stockout ? '<span class="pill crit">' + esc(r.stockout) + '</span>' : '<span class="pill ok">covered</span>') + '</td></tr>'
+      ).join('') + '</tbody></table></div>';
+  }
+
+  // ── split editor ──
+  const sHost = document.getElementById('planSplit');
+  const editable = allMaterialCodes().filter(c => split[c] > 0 || usageTotal(c, 'all') > 0);
+  if (!editable.length) {
+    sHost.innerHTML = '<div class="small">No usage history yet — import movement files first.</div>';
+  } else {
+    sHost.innerHTML = editable.map(c =>
+      '<div class="map-row" style="margin-bottom:6px">' +
+      '<span class="fname" title="' + esc(materialLabel(c)) + '">' + esc(c) + '</span>' +
+      '<input type="number" step="0.1" min="0" data-split="' + esc(c) + '" value="' + (split[c] ? split[c].toFixed(1) : '0') + '">' +
+      '</div>').join('') +
+      '<div class="small" style="margin-top:8px">Total ' + fmt(editable.reduce((s, c) => s + (split[c] || 0), 0), 1) + ' %</div>';
+    sHost.querySelectorAll('input[data-split]').forEach(inp => {
+      inp.onchange = () => {
+        const base = effectiveSplit();
+        base[inp.dataset.split] = Number(inp.value) || 0;
+        state.plan.split = base;
+        state.plan.basis = 'manual';
+        document.getElementById('planSplitBasis').value = 'manual';
+        saveState(); renderPlanning();
+      };
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PAGE: IMPORT
+// ═══════════════════════════════════════════════════════════
+function savedMapFor(kind, headers) {
+  const saved = state.mappings[kind] || {};
+  const usable = {};
+  for (const k in saved) if (headers.indexOf(saved[k]) > -1) usable[k] = saved[k];
+  const auto = autoMap(kind, headers);
+  // Saved mapping wins where it still applies; auto-detection fills the gaps.
+  for (const k in auto) if (!usable[k]) usable[k] = auto[k];
+  return usable;
+}
+function missingRequired(kind, map) {
+  return SCHEMA[kind].fields.filter(f => f.req && !map[f.k]).map(f => f.label);
+}
+
+async function handleFiles(fileList) {
+  const files = Array.from(fileList || []);
+  for (const file of files) {
+    let entry;
+    try {
+      const buf = await file.arrayBuffer();
+      const hash = await sha256(buf);
+      const wb = readWorkbook(new Uint8Array(buf), file.name);
+      if (!wb || !wb.rows.length) {
+        entry = { id: 'e' + Date.now() + Math.random(), filename: file.name, error: 'No data rows found in this file.' };
+      } else {
+        entry = {
+          id: 'e' + Date.now() + Math.random(),
+          filename: file.name, hash, sheet: wb.sheet,
+          headers: wb.headers, rows: wb.rows,
+          kind: wb.kind || 'stock',
+          confident: wb.score >= 1,
+          map: savedMapFor(wb.kind || 'stock', wb.headers),
+          snapDate: todayISO(),
+          dupFile: state.imports.some(i => i.hash === hash),
+          showMap: false,
+        };
+      }
+    } catch (err) {
+      entry = { id: 'e' + Date.now() + Math.random(), filename: file.name, error: String(err && err.message || err) };
+    }
+    staged.push(entry);
+  }
+  renderStaged();
+}
+
+function renderStaged() {
+  const host = document.getElementById('importStaged');
+  if (!staged.length) { host.innerHTML = ''; return; }
+
+  host.innerHTML = '<h5 class="sec">Waiting to be committed</h5>' + staged.map(e => {
+    if (e.error) {
+      return '<div class="banner err"><strong>' + esc(e.filename) + '</strong> — ' + esc(e.error) +
+        ' <button class="btn" data-discard="' + e.id + '" style="margin-left:8px">Discard</button></div>';
+    }
+    const miss = missingRequired(e.kind, e.map);
+    const preview = previewCounts(e);
+    let head = '<div class="row" style="margin-bottom:8px">' +
+      '<strong class="mono">' + esc(e.filename) + '</strong>' +
+      '<span class="muted small">' + e.rows.length + ' rows · sheet “' + esc(e.sheet) + '”</span>' +
+      '<div class="spacer"></div>' +
+      '<label class="fld">Type<select data-kind="' + e.id + '">' +
+        KINDS.map(k => '<option value="' + k + '"' + (k === e.kind ? ' selected' : '') + '>' + SCHEMA[k].label + '</option>').join('') +
+      '</select></label>' +
+      (e.kind !== 'movements'
+        ? '<label class="fld">' + (e.kind === 'stock' ? 'Snapshot date' : 'As of') +
+          '<input type="date" data-date="' + e.id + '" value="' + e.snapDate + '"></label>'
+        : '') +
+      '</div>';
+
+    let notes = '';
+    if (e.dupFile) notes += '<div class="banner warn">This exact file has already been imported. Committing it again will only add rows that are genuinely new.</div>';
+    if (!e.confident) notes += '<div class="banner warn">The file type could not be detected with confidence — check the selection and the mapping below.</div>';
+    if (miss.length) notes += '<div class="banner err">Cannot import yet — unmapped required column(s): <strong>' + esc(miss.join(', ')) + '</strong>. Set them in the mapping below.</div>';
+    if (preview) notes += '<div class="banner ' + (preview.newRows ? 'ok' : 'info') + '">' + preview.text + '</div>';
+
+    const mapUI = '<div style="margin-top:6px">' +
+      '<button class="btn" data-togglemap="' + e.id + '">' + (e.showMap ? 'Hide' : 'Edit') + ' column mapping</button>' +
+      (e.showMap ? '<div class="map-grid" style="margin-top:10px">' + SCHEMA[e.kind].fields.map(f =>
+        '<div class="map-row"><span class="fname">' + esc(f.label) + (f.req ? ' <i>*</i>' : '') + '</span>' +
+        '<select data-map="' + e.id + '" data-field="' + f.k + '">' +
+          '<option value="">— not mapped —</option>' +
+          e.headers.map(h => '<option value="' + esc(h) + '"' + (e.map[f.k] === h ? ' selected' : '') + '>' + esc(h) + '</option>').join('') +
+        '</select></div>').join('') + '</div>' : '') +
+      '</div>';
+
+    return '<div class="card" style="background:var(--bg-2)">' + head + notes + mapUI +
+      '<div class="row" style="margin-top:12px">' +
+      '<button class="btn primary" data-commit="' + e.id + '"' + (miss.length ? ' disabled' : '') + '>Commit to database</button>' +
+      '<button class="btn" data-discard="' + e.id + '">Discard</button>' +
+      '<span class="small">The file is released as soon as it is committed or discarded.</span>' +
+      '</div></div>';
+  }).join('') +
+  (staged.filter(e => !e.error && !missingRequired(e.kind, e.map).length).length > 1
+    ? '<div class="row"><button class="btn primary" id="commitAll">Commit all ready files</button></div>' : '');
+
+  host.querySelectorAll('[data-kind]').forEach(sel => sel.onchange = () => {
+    const e = staged.find(x => x.id === sel.dataset.kind);
+    e.kind = sel.value; e.map = savedMapFor(e.kind, e.headers); e.confident = true; renderStaged();
+  });
+  host.querySelectorAll('[data-date]').forEach(inp => inp.onchange = () => {
+    const e = staged.find(x => x.id === inp.dataset.date); e.snapDate = inp.value || todayISO(); renderStaged();
+  });
+  host.querySelectorAll('[data-togglemap]').forEach(b => b.onclick = () => {
+    const e = staged.find(x => x.id === b.dataset.togglemap); e.showMap = !e.showMap; renderStaged();
+  });
+  host.querySelectorAll('[data-map]').forEach(sel => sel.onchange = () => {
+    const e = staged.find(x => x.id === sel.dataset.map);
+    if (sel.value) e.map[sel.dataset.field] = sel.value; else delete e.map[sel.dataset.field];
+    renderStaged();
+  });
+  host.querySelectorAll('[data-discard]').forEach(b => b.onclick = () => {
+    staged = staged.filter(x => x.id !== b.dataset.discard); renderStaged();
+  });
+  host.querySelectorAll('[data-commit]').forEach(b => b.onclick = () => commit(b.dataset.commit));
+  const all = document.getElementById('commitAll');
+  if (all) all.onclick = () => {
+    staged.filter(e => !e.error && !missingRequired(e.kind, e.map).length).map(e => e.id).forEach(commit);
+  };
+}
+
+// A dry run so the operator sees what a commit will actually change.
+function previewCounts(e) {
+  if (missingRequired(e.kind, e.map).length) return null;
+  const snapshot = JSON.stringify(state.materials);        // extract() registers materials; undo that for a preview
+  try {
+    if (e.kind === 'movements') {
+      const { rows } = extractMovements(e.rows, e.map, state.settings.signMode);
+      const known = new Set(state.movements.map(m => m.key));
+      let dup = 0;
+      const fresh = new Set();
+      for (const m of rows) {
+        const k = movementKey(m);
+        if (known.has(k) || fresh.has(k)) dup++; else fresh.add(k);
+      }
+      return { newRows: fresh.size, text: fresh.size + ' new movement row(s), ' + dup + ' duplicate(s) will be skipped.' };
+    }
+    if (e.kind === 'stock') {
+      const { rows } = extractStock(e.rows, e.map, e.snapDate);
+      const plants = Array.from(new Set(rows.map(r => r.plant)));
+      const dates = Array.from(new Set(rows.map(r => r.date)));
+      return { newRows: rows.length, text: rows.length + ' stock line(s) for ' + plants.join(', ') +
+        ' on ' + dates.join(', ') + '. Any existing snapshot for those dates is replaced.' };
+    }
+    const { rows } = extractOrders(e.rows, e.map, e.snapDate);
+    return { newRows: rows.length, text: rows.length + ' open order line(s) kept (GR quantity 0). ' +
+      'The open-order list is replaced by this file.' };
+  } catch (err) {
+    return { newRows: 0, text: 'Could not read this file with the current mapping: ' + String(err && err.message || err) };
+  } finally {
+    state.materials = JSON.parse(snapshot);
+  }
+}
+
+function commit(id) {
+  const e = staged.find(x => x.id === id);
+  if (!e || e.error) return;
+  const miss = missingRequired(e.kind, e.map);
+  if (miss.length) return;
+
+  let added = 0, skipped = 0, warn = [];
+
+  if (e.kind === 'movements') {
+    const res = extractMovements(e.rows, e.map, state.settings.signMode);
+    warn = res.warn;
+    const known = new Set(state.movements.map(m => m.key));
+    for (const m of res.rows) {
+      const k = movementKey(m);
+      if (known.has(k)) { skipped++; continue; }
+      known.add(k);
+      state.movements.push({ ...m, key: k });
+      added++;
+    }
+    state.movements.sort((a, b) => a.date.localeCompare(b.date));
+  } else if (e.kind === 'stock') {
+    const res = extractStock(e.rows, e.map, e.snapDate);
+    warn = res.warn;
+    const bucket = {};
+    for (const r of res.rows) {
+      const byPlant = bucket[r.plant] || (bucket[r.plant] = {});
+      const byDate = byPlant[r.date] || (byPlant[r.date] = {});
+      byDate[r.code] = (byDate[r.code] || 0) + r.qty;    // several storage locations roll up
+      added++;
+    }
+    for (const plant in bucket) {
+      state.stock[plant] = state.stock[plant] || {};
+      for (const date in bucket[plant]) {
+        if (state.stock[plant][date]) skipped++;
+        state.stock[plant][date] = bucket[plant][date];
+      }
+    }
+  } else {
+    const res = extractOrders(e.rows, e.map, e.snapDate);
+    warn = res.warn;
+    skipped = state.orders.length;
+    state.orders = res.rows;
+    state.ordersDate = e.snapDate;
+    added = res.rows.length;
+  }
+
+  state.mappings[e.kind] = { ...e.map };
+  state.imports.unshift({
+    id: e.id, ts: Date.now(), kind: e.kind, filename: e.filename, hash: e.hash,
+    rows: e.rows.length, added, skipped, warn, date: e.kind === 'movements' ? null : e.snapDate,
+  });
+  if (state.imports.length > 200) state.imports.length = 200;
+
+  staged = staged.filter(x => x.id !== id);   // rows dropped here — the file is gone
+  invalidate();
+  saveState(true);
+  renderStaged();
+  renderImportPage();
+  refreshAll();
+}
+
+function renderImportPage() {
+  const kinds = document.getElementById('importKinds');
+  const lastOf = k => state.imports.find(i => i.kind === k);
+  kinds.innerHTML = KINDS.map(k => {
+    const last = lastOf(k);
+    let when = '<span class="muted">never imported</span>';
+    if (last) {
+      const d = new Date(last.ts);
+      const stale = Date.now() - last.ts > 36 * 3600 * 1000;
+      when = '<span class="pill ' + (stale ? 'warn' : 'ok') + '">' + d.toLocaleDateString('en-GB') + ' ' +
+        d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + '</span>';
+    }
+    let extra = '';
+    if (k === 'stock') {
+      extra = PLANTS().map(p => p + ': ' + (latestSnapDate(p) || '—')).join(' · ');
+    } else if (k === 'movements') {
+      extra = state.movements.length + ' rows · latest ' + (lastMovementDate() || '—');
+    } else {
+      extra = state.orders.length + ' open line(s)' + (state.ordersDate ? ' · as of ' + state.ordersDate : '');
+    }
+    return '<div class="kind ' + k + '"><h4>' + SCHEMA[k].label + '</h4><p>' + SCHEMA[k].hint + '</p>' +
+      '<div class="when">' + when + '</div><div class="small" style="margin-top:4px">' + esc(extra) + '</div></div>';
+  }).join('');
+
+  const log = document.getElementById('importLog');
+  if (!state.imports.length) { log.innerHTML = '<div class="small">Nothing imported yet.</div>'; return; }
+  log.innerHTML = '<div class="table-wrap"><table><thead><tr>' +
+    '<th>When</th><th>Type</th><th>File</th><th class="num">Rows</th><th class="num">Added</th><th class="num">Skipped</th><th>Notes</th>' +
+    '</tr></thead><tbody>' + state.imports.slice(0, 60).map(i => {
+      const d = new Date(i.ts);
+      return '<tr><td class="mono">' + d.toLocaleDateString('en-GB') + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + '</td>' +
+        '<td><span class="pill info">' + SCHEMA[i.kind].label + '</span></td>' +
+        '<td class="desc-cell mono" style="font-size:11px">' + esc(i.filename) + '</td>' +
+        '<td class="num muted">' + i.rows + '</td><td class="num">' + i.added + '</td><td class="num muted">' + i.skipped + '</td>' +
+        '<td class="desc-cell small">' + esc((i.warn || []).join(' ')) + '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+}
+
+// ═══════════════════════════════════════════════════════════
+// PAGE: SETTINGS
+// ═══════════════════════════════════════════════════════════
+function renderSettings() {
+  const s = state.settings;
+  document.getElementById('setPlantProd').value = s.plantProd;
+  document.getElementById('setPlantWh').value = s.plantWh;
+  document.getElementById('setCrit').value = s.critDays;
+  document.getElementById('setLow').value = s.lowDays;
+  document.getElementById('setSign').value = s.signMode;
+  document.getElementById('setSpike').value = s.spikeFactor || 0;
+
+  // Mapping is header-name based, so it can be reviewed without a file open.
+  document.getElementById('mapEditor').innerHTML = KINDS.map(k => {
+    const saved = state.mappings[k] || {};
+    const any = Object.keys(saved).length;
+    return '<h5 class="sec">' + SCHEMA[k].label + (any ? '' : ' <span class="muted">— not set yet</span>') + '</h5>' +
+      '<div class="map-grid">' + SCHEMA[k].fields.map(f =>
+        '<div class="map-row"><span class="fname">' + esc(f.label) + (f.req ? ' <i>*</i>' : '') + '</span>' +
+        '<input type="text" data-mapk="' + k + '" data-mapf="' + f.k + '" value="' + esc(saved[f.k] || '') +
+        '" placeholder="column header in your file"></div>').join('') + '</div>' +
+      (any ? '<div class="row" style="margin-top:8px"><button class="btn" data-clearmap="' + k + '">Clear ' + SCHEMA[k].label.toLowerCase() + ' mapping</button></div>' : '');
+  }).join('');
+
+  document.getElementById('mapEditor').querySelectorAll('input[data-mapk]').forEach(inp => {
+    inp.onchange = () => {
+      const k = inp.dataset.mapk, f = inp.dataset.mapf, v = inp.value.trim();
+      state.mappings[k] = state.mappings[k] || {};
+      if (v) state.mappings[k][f] = v; else delete state.mappings[k][f];
+      saveState();
+    };
+  });
+  document.getElementById('mapEditor').querySelectorAll('[data-clearmap]').forEach(b => {
+    b.onclick = () => { state.mappings[b.dataset.clearmap] = {}; saveState(true); renderSettings(); };
+  });
+
+  const snapCount = PLANTS().reduce((n, p) => n + snapDates(p).length, 0);
+  document.getElementById('dataStats').innerHTML =
+    '<strong>' + Object.keys(state.materials).length + '</strong> materials · ' +
+    '<strong>' + state.movements.length + '</strong> movement rows' +
+    (firstMovementDate() ? ' (' + firstMovementDate() + ' → ' + lastMovementDate() + ')' : '') + ' · ' +
+    '<strong>' + snapCount + '</strong> stock snapshots · ' +
+    '<strong>' + state.orders.length + '</strong> open order lines · ' +
+    '<strong>' + state.imports.length + '</strong> imports logged.';
+}
+
+function wireSettings() {
+  const bind = (id, key, cast) => {
+    document.getElementById(id).onchange = e => {
+      state.settings[key] = cast ? cast(e.target.value) : e.target.value;
+      invalidate(); saveState(); refreshAll();
+    };
+  };
+  bind('setPlantProd', 'plantProd', v => plantCode(v) || 'SI11');
+  bind('setPlantWh', 'plantWh', v => plantCode(v) || 'SI10');
+  bind('setCrit', 'critDays', Number);
+  bind('setLow', 'lowDays', Number);
+  bind('setSign', 'signMode');
+  bind('setSpike', 'spikeFactor', Number);
+
+  document.getElementById('btnExport').onclick = () => {
+    download('paperplan-backup-' + todayISO() + '.json', JSON.stringify(state, null, 1));
+  };
+  document.getElementById('btnImportBackup').onclick = () => document.getElementById('backupInput').click();
+  document.getElementById('backupInput').onchange = async e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    if (!confirm('Restoring replaces everything currently in the database. Continue?')) { e.target.value = ''; return; }
+    try {
+      const parsed = JSON.parse(await f.text());
+      if (!parsed || typeof parsed !== 'object' || !('materials' in parsed)) throw new Error('Not a Paper Plan backup.');
+      state = { ...state, ...parsed };
+      state.settings = { ...DEFAULTS, ...(parsed.settings || {}) };
+      invalidate(); saveState(true); boot();
+      alert('Backup restored.');
+    } catch (err) { alert('Could not restore: ' + (err.message || err)); }
+    e.target.value = '';
+  };
+  document.getElementById('btnPurgeMoves').onclick = () => {
+    const cut = addDays(todayISO(), -365);
+    const before = state.movements.length;
+    state.movements = state.movements.filter(m => m.date >= cut);
+    const gone = before - state.movements.length;
+    // Snapshots older than the cut go too, they are only useful next to movements.
+    for (const p in state.stock) for (const d in state.stock[p]) if (d < cut) delete state.stock[p][d];
+    invalidate(); saveState(true); refreshAll(); renderSettings();
+    alert(gone + ' movement row(s) removed.');
+  };
+  document.getElementById('btnWipe').onclick = () => {
+    if (!confirm('This erases every material, movement, snapshot and order from this browser. Export a backup first if you need one. Continue?')) return;
+    if (!confirm('Really erase everything? This cannot be undone.')) return;
+    state = { version: 1, materials: {}, stock: {}, movements: [], orders: [], ordersDate: null,
+              imports: [], mappings: { stock: {}, movements: {}, orders: {} },
+              settings: { ...DEFAULTS }, plan: { month: '', total: 0, unit: '', spread: 'work', basis: '90', split: {} } };
+    invalidate(); saveState(true); boot();
+  };
+}
+
+// ═══════════════════════════════════════════════════════════
+// NAVIGATION, THEME, WIRING
+// ═══════════════════════════════════════════════════════════
+function go(page) {
+  currentPage = page;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.page === page));
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + page));
+  renderPage(page);
+}
+
+function renderPage(page) {
+  try {
+    if (page === 'materials') renderMaterials();
+    else if (page === 'forecast') renderForecast();
+    else if (page === 'warehouse') renderWarehouse();
+    else if (page === 'planning') renderPlanning();
+    else if (page === 'import') renderImportPage();
+    else if (page === 'settings') renderSettings();
+  } catch (err) {
+    console.error('render ' + page + ' failed:', err);
+  }
+}
+
+function refreshAll() {
+  invalidate();
+  fillMaterialSelect(document.getElementById('fcMaterial'), false);
+  fillMaterialSelect(document.getElementById('whMaterial'), true);
+  renderPage(currentPage);
+}
+
+function themeSetting() { return localStorage.getItem('theme') || 'system'; }
+function applyTheme() {
+  const t = themeSetting();
+  if (t === 'system') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('themeBtn').textContent = t === 'dark' ? '◑' : t === 'light' ? '◐' : '◒';
+  document.getElementById('themeBtn').title = 'Theme: ' + t;
+}
+function cycleTheme() {
+  const order = ['system', 'light', 'dark'];
+  const next = order[(order.indexOf(themeSetting()) + 1) % order.length];
+  localStorage.setItem('theme', next);
+  applyTheme();
+  renderPage(currentPage);     // charts pick up the new palette
+}
+
+function wire() {
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => go(t.dataset.page));
+  document.getElementById('themeBtn').onclick = cycleTheme;
+
+  // All Materials
+  document.getElementById('matSearch').oninput = renderMaterials;
+  document.getElementById('matUsageBasis').onchange = renderMaterials;
+  document.getElementById('matFilter').onchange = renderMaterials;
+  document.getElementById('matExport').onclick = exportMaterialsCSV;
+
+  // Forecast
+  ['fcMaterial', 'fcBasis', 'fcDays', 'fcScope'].forEach(id =>
+    document.getElementById(id).onchange = renderForecast);
+
+  // Warehouse
+  ['whMonth', 'whMaterial', 'whBasis'].forEach(id =>
+    document.getElementById(id).onchange = renderWarehouse);
+  document.querySelectorAll('#whPlantSeg button').forEach(b => b.onclick = () => {
+    whScope = b.dataset.scope;
+    document.querySelectorAll('#whPlantSeg button').forEach(x => x.classList.toggle('active', x === b));
+    renderWarehouse();
+  });
+
+  // Planning
+  document.getElementById('planMonth').onchange = e => { state.plan.month = e.target.value; saveState(); renderPlanning(); };
+  document.getElementById('planTotal').onchange = e => { state.plan.total = Number(e.target.value) || 0; saveState(); renderPlanning(); };
+  document.getElementById('planUnit').onchange = e => { state.plan.unit = e.target.value.trim(); saveState(); renderPlanning(); };
+  document.getElementById('planSpread').onchange = e => { state.plan.spread = e.target.value; saveState(); renderPlanning(); };
+  document.getElementById('planSplitBasis').onchange = e => {
+    state.plan.basis = e.target.value;
+    if (e.target.value === 'manual' && !Object.keys(state.plan.split || {}).length) state.plan.split = computedSplit('90');
+    saveState(); renderPlanning();
+  };
+  document.getElementById('planReset').onclick = () => {
+    state.plan.split = {}; state.plan.basis = '90';
+    document.getElementById('planSplitBasis').value = '90';
+    saveState(); renderPlanning();
+  };
+
+  // Import
+  const dz = document.getElementById('dropZone');
+  const fi = document.getElementById('fileInput');
+  dz.onclick = () => fi.click();
+  fi.onchange = () => { handleFiles(fi.files); fi.value = ''; };
+  ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('over'); }));
+  dz.addEventListener('drop', e => { if (e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files); });
+
+  wireSettings();
+}
+
+function boot() {
+  applyTheme();
+  document.getElementById('whMonth').value = monthKey(todayISO());
+  document.getElementById('planMonth').value = state.plan.month || monthKey(addDays(todayISO(), 32));
+  state.plan.month = document.getElementById('planMonth').value;
+  document.getElementById('planTotal').value = state.plan.total || '';
+  document.getElementById('planUnit').value = state.plan.unit || '';
+  document.getElementById('planSpread').value = state.plan.spread || 'work';
+  document.getElementById('planSplitBasis').value = state.plan.basis || '90';
+  refreshAll();
+  renderImportPage();
+  renderSettings();
+}
+
+function checkLibraries() {
+  const missing = [];
+  if (typeof XLSX === 'undefined') missing.push('the spreadsheet reader');
+  if (typeof Chart === 'undefined') missing.push('the charting library');
+  if (!missing.length) return;
+  document.body.insertAdjacentHTML('afterbegin',
+    '<div class="banner err" style="margin:16px">Could not load ' + missing.join(' and ') +
+    ' from the CDN, so ' + (typeof XLSX === 'undefined' ? 'file import' : 'charts') +
+    ' will not work. Check the network connection or the site\u2019s content policy, then reload.</div>');
+}
+
+(async function init() {
+  if (typeof indexedDB === 'undefined') {
+    document.body.insertAdjacentHTML('afterbegin',
+      '<div class="banner err" style="margin:16px">This browser has no IndexedDB, so nothing can be saved. Use a normal (non-private) window.</div>');
+  }
+  checkLibraries();
+  await loadState();
+  wire();
+  boot();
+})();
+</script>
+</body>
+</html>
