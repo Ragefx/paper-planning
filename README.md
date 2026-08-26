@@ -201,6 +201,20 @@ Uploads are gzipped. A year of movements at roughly 120 rows a day is about
 Sync is optional. Without it the app runs exactly as before, confined to one
 browser, and Settings still offers JSON backup and restore.
 
+## Layout
+
+Navigation is a left sidebar rather than tabs across the top, which gives every
+page — and every chart — the full width of the window. Below 900px it folds
+into a scrolling top bar and the materials table drops to the four columns that
+answer "what is about to run out".
+
+The KPI row is a single joined panel rather than separate floating boxes, so it
+reads as one instrument cluster above the content. Severity appears as a rail
+down the left edge of a table row, before any number has been parsed.
+
+Light is the primary design; dark is an alternate, re-stepped against its own
+surface rather than an automatic inversion, and still toggled from the sidebar.
+
 ## Colour
 
 Series colours come from a validated categorical palette and are assigned by
