@@ -234,6 +234,56 @@ tbody tr.clickable { cursor: pointer; }
 .grow { flex: 1; min-width: 160px; }
 .spacer { flex: 1; }
 .small { font-size: 11.5px; color: var(--text-2); line-height: 1.55; }
+/* ── MODAL ── */
+.modal-back {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 400;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.modal {
+  background: var(--bg-1); border: 1px solid var(--border-light); border-radius: var(--radius);
+  max-width: 900px; width: 100%; max-height: 84vh; display: flex; flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0,0,0,.3);
+}
+.modal-head {
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 12px;
+}
+.modal-title { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.modal-body { overflow: auto; padding: 14px 16px; }
+
+.age-chip { cursor: default; }
+
+/* ── PRINT ── */
+@media print {
+  .header, .tabs, .controls, .toast-wrap, .btn, .seg, #planSplit, .chart-box { display: none !important; }
+  .page { display: none !important; }
+  .page.active { display: block !important; }
+  body { background: #fff; color: #000; font-size: 11px; }
+  .card { border: none; padding: 0 0 12px; break-inside: avoid; }
+  .table-wrap { overflow: visible; border: none; }
+  thead th { background: #eee !important; color: #000 !important; }
+  tbody td, thead th { padding: 4px 6px; }
+}
+
+/* ── PHONE ── */
+@media (max-width: 720px) {
+  body { font-size: 13px; }
+  .header { height: auto; flex-wrap: wrap; padding: 8px 12px; gap: 8px; }
+  .header-right { width: 100%; order: 3; }
+  .tabs { order: 2; width: 100%; }
+  .page { padding: 12px; }
+  .stats { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+  .stat-value { font-size: 17px; }
+  .split { grid-template-columns: 1fr; }
+  .controls { gap: 6px; }
+  label.fld { flex: 1 1 46%; }
+  label.fld input, label.fld select { width: 100% !important; }
+  .desc-cell { min-width: 0; max-width: 160px; }
+  /* the columns that survive on a phone are the ones a floor question needs */
+  .compact-hide { display: none; }
+  .modal { max-height: 92vh; }
+}
+
 .toast-wrap { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 500; }
 .toast {
   background: var(--bg-1); border: 1px solid var(--border-light); border-left-width: 3px;
@@ -263,12 +313,14 @@ h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; 
     <button class="tab" data-page="forecast">Material Forecast</button>
     <button class="tab" data-page="warehouse">Warehouse Movement</button>
     <button class="tab" data-page="planning">Production Planning</button>
+    <button class="tab" data-page="history">History</button>
     <button class="tab" data-page="import">Import</button>
     <button class="tab" data-page="settings">Settings</button>
   </div>
   <div class="header-right">
     <span class="save-indicator" id="saveIndicator">● AUTO-SAVE ON</span>
     <span class="save-indicator" id="dropboxIndicator" title="Dropbox sync status">○ DROPBOX OFF</span>
+    <span class="save-indicator age-chip" id="dataAgeChip"></span>
     <button class="icon-btn" id="themeBtn" title="Toggle theme">◐</button>
   </div>
 </div>
@@ -432,6 +484,7 @@ h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; 
         </select>
       </label>
       <div class="spacer"></div>
+      <button class="btn primary" id="planSave">Save this plan</button>
       <button class="btn" id="planReset">Reset split</button>
     </div>
     <div id="planDerived"></div>
@@ -457,7 +510,12 @@ h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; 
   <div class="stats" id="planStats"></div>
 
   <div class="card">
-    <div class="card-title">What to order</div>
+    <div class="row" style="margin-bottom:12px">
+      <div class="card-title" style="margin:0">What to order</div>
+      <div class="spacer"></div>
+      <button class="btn" id="planExport">Export CSV</button>
+      <button class="btn" id="planPrint">Print</button>
+    </div>
     <div id="planOrders"></div>
   </div>
 
@@ -480,6 +538,27 @@ h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; 
   </div>
 </div>
 
+
+<div class="page" id="page-history">
+  <div class="page-head">
+    <div class="page-title">History</div>
+    <div class="page-sub">What was planned against what was actually consumed</div>
+  </div>
+  <div class="banner info">
+    Consumption is read from the 251/252 postings for each month, so it is there whether or not a plan was saved.
+    Save a plan on the Production Planning tab to compare against it, and enter the board actually produced to get the
+    real paper weight per square metre — which is the honest way to set the waste allowance.
+  </div>
+  <div class="stats" id="histStats"></div>
+  <div class="card">
+    <div class="card-title">Planned against actual</div>
+    <div class="chart-box"><canvas id="histChart"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-title">By month</div>
+    <div id="histTable"></div>
+  </div>
+</div>
 
 <div class="page" id="page-import">
   <div class="page-head">
@@ -572,6 +651,7 @@ h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; 
 </div>
 
 <div class="toast-wrap" id="toasts"></div>
+<div id="modalHost"></div>
 
 <script>
 // ═══════════════════════════════════════════════════════════
@@ -622,6 +702,8 @@ let state = {
   mappings: { stock: {}, movements: {}, orders: {} },
   settings: { ...DEFAULTS },
   plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {} },
+  plans: {},      // 'YYYY-MM' -> the plan as it stood when saved
+  actuals: {},    // 'YYYY-MM' -> { sqm } board actually produced
 };
 
 let currentPage = 'materials';
@@ -684,6 +766,8 @@ function loadState() {
           state.settings = { ...DEFAULTS, ...(r.settings || {}) };
           state.mappings = { stock: {}, movements: {}, orders: {}, ...(r.mappings || {}) };
           state.plan = { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {}, ...(r.plan || {}) };
+          state.plans = r.plans || {};
+          state.actuals = r.actuals || {};
         }
         resolve();
       };
@@ -707,6 +791,21 @@ function notify(msg, kind) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// MODAL
+// ═══════════════════════════════════════════════════════════
+function closeModal() { document.getElementById('modalHost').innerHTML = ''; }
+function openModal(title, bodyHtml) {
+  const host = document.getElementById('modalHost');
+  host.innerHTML =
+    '<div class="modal-back" id="modalBack"><div class="modal">' +
+    '<div class="modal-head"><span class="modal-title">' + esc(title) + '</span>' +
+    '<div class="spacer"></div><button class="btn" id="modalClose">Close</button></div>' +
+    '<div class="modal-body">' + bodyHtml + '</div></div></div>';
+  host.querySelector('#modalClose').onclick = closeModal;
+  host.querySelector('#modalBack').onclick = e => { if (e.target.id === 'modalBack') closeModal(); };
+}
+
+// ═══════════════════════════════════════════════════════════
 // MERGE — reconciling two copies of the database
 // ═══════════════════════════════════════════════════════════
 // Two machines can each hold changes the other has not seen. Every part of
@@ -727,6 +826,8 @@ function mergeStates(local, remote) {
     settings: newer.settings || older.settings || {},
     mappings: newer.mappings || older.mappings || {},
     plan: newer.plan || older.plan || {},
+    plans: { ...(older.plans || {}), ...(newer.plans || {}) },
+    actuals: { ...(older.actuals || {}), ...(newer.actuals || {}) },
     materials: { ...(older.materials || {}), ...(newer.materials || {}) },
     stock: {}, movements: [], orders: [], ordersDate: null, imports: [],
   };
@@ -1827,6 +1928,22 @@ function basisNote(basis) {
   return who + ' only · ' + unit + (w.clipped ? ' · only ' + w.span + ' days of history' : '');
 }
 
+// How stale the numbers are. Deciding on four-day-old movements should not be
+// something you have to go looking for.
+function dataAgeDays() {
+  const last = lastMovementDate();
+  return last ? daysBetween(last, todayISO()) : null;
+}
+function renderDataAge() {
+  const el = document.getElementById('dataAgeChip');
+  if (!el) return;
+  const age = dataAgeDays();
+  if (age === null) { el.textContent = ''; el.title = ''; return; }
+  el.textContent = '◷ DATA ' + (age <= 0 ? 'TODAY' : age === 1 ? '1 DAY OLD' : age + ' DAYS OLD');
+  el.style.color = age <= 1 ? 'var(--green)' : age <= 3 ? 'var(--amber)' : 'var(--red)';
+  el.title = 'Latest movement posted ' + lastMovementDate();
+}
+
 function riskLevel(days) {
   if (days === null || days === undefined || !isFinite(days)) return 'none';
   if (days <= (Number(state.settings.critDays) || 3)) return 'crit';
@@ -1953,6 +2070,7 @@ function arrivalTooltip(byDate, labels) {
 // ═══════════════════════════════════════════════════════════
 // PAGE: ALL MATERIALS
 // ═══════════════════════════════════════════════════════════
+const PHONE_HIDE = new Set(['desc', 'wh', 'pr', 'ordered', 'bareDays']);
 const MAT_COLS = [
   { k: 'code',    label: 'Material',   cls: 'mono' },
   { k: 'desc',    label: 'Description',cls: 'desc-cell' },
@@ -2025,7 +2143,12 @@ function renderMaterials() {
       '). Usage averages and every day-of-cover figure below are drawn from that much data, so treat them as provisional ' +
       'until a few weeks have accumulated.</div>'
     : '';
-  const banners = staleBanner + thinBanner;
+  const age = dataAgeDays();
+  const ageBanner = age !== null && age > 2
+    ? '<div class="banner warn">The most recent movement on record is ' + esc(lastMovementDate()) + ', ' + age +
+      ' days ago. Usage rates and every cover figure below are as of then — import today\u2019s files before acting on this.</div>'
+    : '';
+  const banners = ageBanner + staleBanner + thinBanner;
 
   if (!rows.length) {
     host.innerHTML = banners + emptyState('No materials to show',
@@ -2036,7 +2159,7 @@ function renderMaterials() {
   }
 
   const head = MAT_COLS.map(c =>
-    '<th class="sortable' + (c.cls === 'num' ? ' num' : '') + '" data-sort="' + c.k + '">' +
+    '<th class="sortable' + (c.cls === 'num' ? ' num' : '') + (PHONE_HIDE.has(c.k) ? ' compact-hide' : '') + '" data-sort="' + c.k + '">' +
     esc(c.k === 'wh' ? PLANT_WH() : c.k === 'pr' ? PLANT_PROD() : c.label) +
     (matSort.field === c.k ? (matSort.dir === 'asc' ? ' ▲' : ' ▼') : '') + '</th>').join('');
 
@@ -2057,17 +2180,18 @@ function renderMaterials() {
     const marks = (r.undated ? '*' : '') + (r.overdue ? '!' : '');
     return '<tr class="clickable" data-code="' + esc(r.code) + '">' +
       '<td class="mono">' + esc(r.code) + '</td>' +
-      '<td class="desc-cell">' + esc(r.desc || '—') + '</td>' +
-      '<td class="num' + (r.wh ? '' : ' muted') + '">' + fmt(r.wh, 0) + '</td>' +
-      '<td class="num' + (r.pr ? '' : ' muted') + '">' + fmt(r.pr, 0) + '</td>' +
+      '<td class="desc-cell compact-hide">' + esc(r.desc || '—') + '</td>' +
+      '<td class="num compact-hide' + (r.wh ? '' : ' muted') + '">' + fmt(r.wh, 0) + '</td>' +
+      '<td class="num compact-hide' + (r.pr ? '' : ' muted') + '">' + fmt(r.pr, 0) + '</td>' +
       '<td class="num"><strong>' + fmt(r.total, 0) + '</strong>' + (r.unit ? ' <span class="muted" style="font-size:10px">' + esc(r.unit) + '</span>' : '') + '</td>' +
-      '<td class="num' + (r.ordered ? '' : ' muted') + '"' + (orderTitle ? ' title="' + esc(orderTitle) + '"' : '') + '>' +
+      '<td class="num compact-hide' + (r.ordered ? '' : ' muted') + '"' + (orderTitle ? ' title="' + esc(orderTitle) + '"' : '') + '>' +
         (r.ordered ? fmt(r.ordered, 0) + (marks ? ' <span style="font-size:10px;color:' +
           (r.overdue ? 'var(--red)' : 'var(--text-2)') + '">' + marks + '</span>' : '') : '—') + '</td>' +
-      '<td class="num">' + (r.usage ? fmt(r.usage) : '<span class="muted">—</span>') + '</td>' +
+      '<td class="num"><a href="#" data-usage="' + esc(r.code) + '" style="color:inherit;text-decoration:underline dotted;text-underline-offset:3px" title="Show the postings behind this">' +
+        (r.usage ? fmt(r.usage) : '<span class="muted">—</span>') + '</a></td>' +
       '<td class="num"><div class="days-bar"><div class="days-track"><div class="days-fill" style="width:' + pct + '%;background:' + col + '"></div></div>' +
         '<span style="color:' + (lvl === 'none' ? 'var(--text-2)' : col) + '">' + fmtCover(r) + '</span></div></td>' +
-      '<td class="num muted"' + (propped ? ' title="Deliveries are what close this gap"' : '') + '>' +
+      '<td class="num muted compact-hide"' + (propped ? ' title="Deliveries are what close this gap"' : '') + '>' +
         fmtCover({ days: r.bareDays, capped: r.bareCapped, noUsage: r.noUsage }) +
         (propped ? ' <span style="color:var(--blue)">↑</span>' : '') + '</td>' +
     '</tr>';
@@ -2090,12 +2214,50 @@ function renderMaterials() {
     else matSort = { field: f, dir: f === 'code' || f === 'desc' ? 'asc' : 'desc' };
     renderMaterials();
   });
+  host.querySelectorAll('a[data-usage]').forEach(a => a.onclick = e => {
+    e.preventDefault(); e.stopPropagation();
+    showUsageDetail(a.dataset.usage, document.getElementById('matUsageBasis').value);
+  });
   host.querySelectorAll('tr.clickable').forEach(tr => tr.onclick = () => {
     const fc = document.getElementById('fcMaterial');
     fc.value = tr.dataset.code;
     fc.dataset.userPicked = '1';
     go('forecast');
   });
+}
+
+// Every usage figure should be traceable to the postings behind it.
+function showUsageDetail(code, basis) {
+  const w = usageWindow(basis);
+  if (!w) { notify('No movement history yet', 'info'); return; }
+  const rows = state.movements
+    .filter(m => m.code === code && USAGE_MVT.indexOf(m.mvt) > -1 &&
+                 m.date >= w.from && m.date <= w.to && w.plants.indexOf(m.plant) > -1)
+    .sort((a, b) => b.date.localeCompare(a.date) || a.plant.localeCompare(b.plant));
+  const total = rows.reduce((s, m) => s - m.qty, 0);
+  const rate = avgUsage(code, basis);
+
+  const body =
+    '<div class="small" style="margin-bottom:10px">' +
+      'Window <strong>' + esc(w.from) + '</strong> to <strong>' + esc(w.to) + '</strong> — ' +
+      w.span + ' calendar days, <strong>' + w.workdays + '</strong> counted as production days, ' +
+      esc(w.plants.join(' + ')) + '.<br>' +
+      'Net of ' + rows.length + ' posting(s): <strong>' + fmt(total, 0) + '</strong> kg ÷ ' + w.workdays +
+      ' = <strong>' + fmt(rate) + '</strong> per working day.' +
+      (Number(state.settings.spikeFactor) > 0 ? ' A spike filter of ×' + state.settings.spikeFactor + ' is active, so the rate may exclude some of these days.' : '') +
+    '</div>' +
+    (rows.length
+      ? '<div class="table-wrap"><table><thead><tr><th>Date</th><th>Plant</th><th>Type</th>' +
+        '<th class="num">Quantity</th><th>Document</th><th>Supplier</th></tr></thead><tbody>' +
+        rows.map(m => '<tr><td class="mono">' + esc(m.date) + '</td>' +
+          '<td><span class="pill ' + (m.plant === PLANT_WH() ? 'si10' : 'si11') + '">' + esc(m.plant) + '</span></td>' +
+          '<td class="mono">' + esc(m.mvt) + ' <span class="muted">' + esc(MVT[m.mvt].label) + '</span></td>' +
+          '<td class="num">' + fmt(-m.qty, 0) + '</td>' +
+          '<td class="mono muted">' + esc(m.doc || '—') + (m.item ? '/' + esc(m.item) : '') + '</td>' +
+          '<td class="muted">' + esc(m.partner || '—') + '</td></tr>').join('') +
+        '</tbody></table></div>'
+      : '<div class="small">No consumption postings in this window.</div>');
+  openModal(materialLabel(code) + ' · usage detail', body);
 }
 
 function tile(label, value, note, cls) {
@@ -2716,6 +2878,15 @@ function renderPlanning() {
       ? '<div class="banner warn">' + plan.mk + ' has only ' + monthDays(plan.mk) +
         ' days, so the ' + askedFor + ' agreed days were capped at ' + plan.nSpread + '.</div>' : '');
 
+  const saved = (state.plans || {})[plan.mk];
+  const savedMatches = saved && Math.abs((Number(saved.kg) || 0) - kg) < 1;
+  document.getElementById('planDerived').innerHTML += saved
+    ? '<div class="banner ' + (savedMatches ? 'ok' : 'warn') + '">Plan for ' + esc(plan.mk) + ' saved ' +
+      new Date(saved.savedAt).toLocaleDateString('en-GB') +
+      (savedMatches ? ' and matches what is on screen.' : ' — the figures above differ from it. Save again to replace it.') +
+      '</div>'
+    : (kg ? '<div class="banner info">This plan is not saved. Save it to score it against actual consumption later.</div>' : '');
+
   document.getElementById('planStats').innerHTML = [
     tile('Paper required', fmt(kg / 1000, 1) + '<span class="stat-unit">t</span>',
          plan.rows.length + ' material(s) in the plan'),
@@ -2871,6 +3042,187 @@ function renderSplitEditor() {
     };
   });
 }
+
+// ═══════════════════════════════════════════════════════════
+// PAGE: HISTORY — planned against actual
+// ═══════════════════════════════════════════════════════════
+// Consumption per month comes from the 251/252 postings, so a month has a
+// record whether or not anyone saved a plan for it. Where a plan exists, the
+// difference is the forecast error. Where the board actually produced has been
+// entered too, the paper per square metre falls out — and that, not a guess,
+// is what the waste allowance should be set from.
+function monthlyActuals() {
+  return memo('monthlyActuals', () => {
+    const by = {};
+    for (const m of state.movements) {
+      if (USAGE_MVT.indexOf(m.mvt) === -1) continue;
+      const mk = monthKey(m.date);
+      by[mk] = (by[mk] || 0) - m.qty;
+    }
+    return by;
+  });
+}
+function monthlyReceipts() {
+  return memo('monthlyReceipts', () => {
+    const by = {};
+    for (const m of state.movements) {
+      if (MVT[m.mvt].kind !== 'receipt' || !ownStock(m)) continue;
+      const mk = monthKey(m.date);
+      by[mk] = (by[mk] || 0) + m.qty;
+    }
+    return by;
+  });
+}
+
+function historyRows() {
+  const actual = monthlyActuals(), received = monthlyReceipts();
+  const months = Array.from(new Set([
+    ...Object.keys(actual), ...Object.keys(state.plans || {}), ...Object.keys(state.actuals || {}),
+  ])).sort().reverse();
+  const thisMonth = monthKey(todayISO());
+
+  return months.map(mk => {
+    const plan = (state.plans || {})[mk] || null;
+    const actSqm = Number(((state.actuals || {})[mk] || {}).sqm) || 0;
+    const actKg = actual[mk] || 0;
+    const planKg = plan ? Number(plan.kg) || 0 : 0;
+    return {
+      mk, plan, planKg, actKg, actSqm,
+      received: received[mk] || 0,
+      partial: mk >= thisMonth,
+      variance: planKg > 0 ? (actKg / planKg - 1) * 100 : null,
+      // Paper actually used for each square metre of board, waste and all.
+      realGsm: actSqm > 0 ? actKg / actSqm * 1000 : null,
+      // What the plan assumed per square metre, waste included.
+      planGsm: plan && plan.gsm ? Number(plan.gsm) * (1 + (Number(plan.waste) || 0) / 100) : null,
+    };
+  });
+}
+
+function renderHistory() {
+  const rows = historyRows();
+  const closed = rows.filter(r => !r.partial);
+  const withPlan = closed.filter(r => r.plan && r.planKg > 0);
+  const withBoth = closed.filter(r => r.realGsm !== null && r.plan && r.plan.gsm);
+
+  const meanVar = withPlan.length
+    ? withPlan.reduce((s, r) => s + r.variance, 0) / withPlan.length : null;
+  // Waste that would have made the plans right, on average.
+  const impliedWaste = withBoth.length
+    ? withBoth.reduce((s, r) => s + (r.realGsm / Number(r.plan.gsm) - 1) * 100, 0) / withBoth.length : null;
+
+  document.getElementById('histStats').innerHTML = [
+    tile('Months on record', fmt(rows.length, 0),
+         closed.length + ' complete' + (rows.length - closed.length ? ', 1 still running' : '')),
+    tile('Plans saved', fmt(rows.filter(r => r.plan).length, 0),
+         withPlan.length ? withPlan.length + ' can be scored' : 'save one to compare'),
+    tile('Average error', meanVar === null ? '—' : (meanVar > 0 ? '+' : '') + fmt(meanVar, 1) + '<span class="stat-unit">%</span>',
+         meanVar === null ? 'no completed month with a plan'
+           : meanVar > 0 ? 'consumed more than planned' : 'consumed less than planned',
+         meanVar !== null && Math.abs(meanVar) > 10 ? 'accent' : ''),
+    tile('Paper per m² of board', withBoth.length ? fmt(withBoth.reduce((s, r) => s + r.realGsm, 0) / withBoth.length, 1) + '<span class="stat-unit">g</span>' : '—',
+         withBoth.length ? 'measured over ' + withBoth.length + ' month(s)' : 'enter the board produced below'),
+    tile('Waste allowance to use', impliedWaste === null ? '—' : fmt(impliedWaste, 1) + '<span class="stat-unit">%</span>',
+         impliedWaste === null ? 'needs a plan and the board produced' : 'against the planned grammage',
+         impliedWaste !== null ? 'accent' : ''),
+  ].join('');
+
+  // ── chart ──
+  const chartRows = rows.slice(0, 18).reverse();
+  if (!chartRows.length) {
+    if (charts.histChart) { charts.histChart.destroy(); delete charts.histChart; }
+  } else {
+    const opt = chartBase();
+    opt.plugins.tooltip.callbacks = {
+      label: ctx => ctx.dataset.label + ': ' + fmt(ctx.parsed.y, 1) + ' t',
+    };
+    drawChart('histChart', {
+      type: 'bar',
+      data: {
+        labels: chartRows.map(r => r.mk),
+        datasets: [
+          { label: 'Planned', data: chartRows.map(r => r.planKg ? r.planKg / 1000 : null),
+            backgroundColor: cssVar('--blue') + '99', borderColor: cssVar('--blue'), borderWidth: 1 },
+          { label: 'Consumed', data: chartRows.map(r => r.actKg / 1000),
+            backgroundColor: cssVar('--amber') + '99', borderColor: cssVar('--amber'), borderWidth: 1 },
+        ],
+      },
+      options: opt,
+    });
+  }
+
+  // ── table, with the board-produced field editable in place ──
+  const host = document.getElementById('histTable');
+  if (!rows.length) {
+    host.innerHTML = emptyState('Nothing recorded yet', 'Import movements and the months will appear here.');
+    return;
+  }
+  host.innerHTML = '<div class="table-wrap"><table><thead><tr>' +
+    '<th>Month</th><th class="num">Board planned</th><th class="num">Board produced</th>' +
+    '<th class="num">Paper planned</th><th class="num">Paper used</th><th class="num">Error</th>' +
+    '<th class="num">g/m² planned</th><th class="num">g/m² actual</th><th class="num">Received</th><th></th>' +
+    '</tr></thead><tbody>' + rows.map(r => {
+      const vCol = r.variance === null ? '' : Math.abs(r.variance) > 10 ? 'var(--red)' : Math.abs(r.variance) > 5 ? 'var(--amber)' : 'var(--green)';
+      return '<tr>' +
+        '<td class="mono">' + esc(r.mk) + '</td>' +
+        '<td class="num muted">' + (r.plan && r.plan.sqm ? fmt(r.plan.sqm, 0) : '—') + '</td>' +
+        '<td class="num"><input type="number" step="any" min="0" data-actual="' + esc(r.mk) + '" value="' +
+          (r.actSqm || '') + '" placeholder="m²" style="width:120px;text-align:right"></td>' +
+        '<td class="num">' + (r.planKg ? fmt(r.planKg / 1000, 1) + ' t' : '—') + '</td>' +
+        '<td class="num"><strong>' + fmt(r.actKg / 1000, 1) + ' t</strong></td>' +
+        '<td class="num" style="color:' + vCol + '">' + (r.variance === null ? '—' : (r.variance > 0 ? '+' : '') + fmt(r.variance, 1) + ' %') + '</td>' +
+        '<td class="num muted">' + (r.planGsm === null ? '—' : fmt(r.planGsm, 1)) + '</td>' +
+        '<td class="num">' + (r.realGsm === null ? '<span class="muted">—</span>' : fmt(r.realGsm, 1)) + '</td>' +
+        '<td class="num muted">' + fmt(r.received / 1000, 1) + ' t</td>' +
+        '<td>' + (r.partial ? '<span class="pill warn">running</span>' : r.plan ? '<span class="pill ok">scored</span>' : '<span class="pill">no plan</span>') + '</td>' +
+      '</tr>';
+    }).join('') + '</tbody></table></div>' +
+    '<div class="small" style="margin-top:8px">“Paper used” is the net of 251 and 252 postings across both plants. ' +
+    'Enter the board actually produced to get the real paper weight per square metre — the last column against the one before it ' +
+    'is the waste the plan should have allowed for. The current month is still running, so its figures are partial.</div>';
+
+  host.querySelectorAll('input[data-actual]').forEach(inp => {
+    inp.onchange = () => {
+      const mk = inp.dataset.actual;
+      state.actuals = state.actuals || {};
+      const v = Number(inp.value) || 0;
+      if (v > 0) state.actuals[mk] = { sqm: v }; else delete state.actuals[mk];
+      invalidate(); saveState(); renderHistory();
+    };
+  });
+}
+
+function exportOrderPlan() {
+  const plan = buildOrderPlan();
+  if (!plan.proposals.length) { notify('No orders to export', 'info'); return; }
+  const head = ['Order by', 'Material', 'Description', 'Quantity kg', 'Arrive by', 'Days from today', 'Plan month'];
+  const lines = [head.join(';')];
+  for (const o of plan.proposals) {
+    lines.push([o.orderBy, o.code,
+      '"' + String((state.materials[o.code] || {}).desc || '').replace(/"/g, '""') + '"',
+      o.qty, o.arriveBy, daysBetween(todayISO(), o.orderBy), plan.mk].join(';'));
+  }
+  download('order-plan-' + plan.mk + '.csv', lines.join('\n'), 'text/csv');
+}
+
+function savePlanSnapshot() {
+  const mk = state.plan.month;
+  if (!mk) { notify('Pick a plan month first', 'info'); return; }
+  const { kg, sqm, gsm, waste } = planInputs();
+  if (!kg) { notify('Enter the board area and grammage first', 'info'); return; }
+  state.plans = state.plans || {};
+  const existed = !!state.plans[mk];
+  state.plans[mk] = {
+    sqm, gsm, waste, kg,
+    spread: state.plan.spread, prodDays: state.plan.prodDays,
+    basis: state.plan.basis, split: effectiveSplit(),
+    savedAt: Date.now(),
+  };
+  invalidate(); saveState(true);
+  notify((existed ? 'Plan for ' + mk + ' replaced' : 'Plan for ' + mk + ' saved') + ' — it will be scored on the History tab.', 'ok');
+  renderPlanning();
+}
+
 // ═══════════════════════════════════════════════════════════
 // PAGE: IMPORT
 // ═══════════════════════════════════════════════════════════
@@ -3033,16 +3385,19 @@ function commit(id) {
   if (miss.length) return;
 
   let added = 0, skipped = 0, warn = [];
+  const undo = { kind: e.kind };
 
   if (e.kind === 'movements') {
     const res = extractMovements(e.rows, e.map, state.settings.signMode);
     warn = res.warn;
     const known = new Set(state.movements.map(m => m.key));
+    undo.keys = [];
     for (const m of res.rows) {
       const k = movementKey(m);
       if (known.has(k)) { skipped++; continue; }
       known.add(k);
       state.movements.push({ ...m, key: k });
+      undo.keys.push(k);
       added++;
     }
     state.movements.sort((a, b) => a.date.localeCompare(b.date));
@@ -3056,9 +3411,13 @@ function commit(id) {
       byDate[r.code] = (byDate[r.code] || 0) + r.qty;    // several storage locations roll up
       added++;
     }
+    undo.stock = {};
     for (const plant in bucket) {
       state.stock[plant] = state.stock[plant] || {};
+      undo.stock[plant] = undo.stock[plant] || {};
       for (const date in bucket[plant]) {
+        // null records "there was no snapshot here before"
+        undo.stock[plant][date] = state.stock[plant][date] || null;
         if (state.stock[plant][date]) skipped++;
         state.stock[plant][date] = bucket[plant][date];
       }
@@ -3066,6 +3425,8 @@ function commit(id) {
   } else {
     const res = extractOrders(e.rows, e.map, e.snapDate);
     warn = res.warn;
+    undo.orders = state.orders;
+    undo.ordersDate = state.ordersDate;
     skipped = state.orders.length;
     state.orders = res.rows;
     state.ordersDate = e.snapDate;
@@ -3076,7 +3437,11 @@ function commit(id) {
   state.imports.unshift({
     id: e.id, ts: Date.now(), kind: e.kind, filename: e.filename, hash: e.hash,
     rows: e.rows.length, added, skipped, warn, date: e.kind === 'movements' ? null : e.snapDate,
+    undo,
   });
+  // Undo payloads are only useful for the most recent imports and are much
+  // bigger than the log line itself, so older ones are dropped.
+  state.imports.forEach((i, n) => { if (n >= 10) delete i.undo; });
   if (state.imports.length > 200) state.imports.length = 200;
 
   staged = staged.filter(x => x.id !== id);   // rows dropped here — the file is gone
@@ -3085,6 +3450,48 @@ function commit(id) {
   renderStaged();
   renderImportPage();
   refreshAll();
+}
+
+// Only the newest import that still carries a payload can be undone. Applying
+// them out of order could restore a stale stock snapshot over a fresher one or
+// resurrect a superseded order list, so the log behaves as a stack.
+function undoableImport() {
+  const i = state.imports.findIndex(x => x && x.undo);
+  return i === 0 ? state.imports[0] : null;
+}
+
+function undoLastImport() {
+  const entry = undoableImport();
+  if (!entry) return;
+  const u = entry.undo;
+  const label = SCHEMA[entry.kind].label.toLowerCase() + ' from ' + entry.filename;
+  if (!confirm('Undo the ' + label + '?\n\n' +
+      (u.kind === 'movements' ? entry.added + ' movement row(s) will be removed.'
+       : u.kind === 'stock' ? 'The stock snapshot(s) it wrote will be restored to what was there before.'
+       : 'The previous open-order list (' + (u.orders || []).length + ' line(s)) will be restored.'))) return;
+
+  if (u.kind === 'movements') {
+    const drop = new Set(u.keys || []);
+    state.movements = state.movements.filter(m => !drop.has(m.key));
+  } else if (u.kind === 'stock') {
+    for (const plant in (u.stock || {})) {
+      for (const date in u.stock[plant]) {
+        if (u.stock[plant][date]) state.stock[plant][date] = u.stock[plant][date];
+        else if (state.stock[plant]) delete state.stock[plant][date];
+      }
+      if (state.stock[plant] && !Object.keys(state.stock[plant]).length) delete state.stock[plant];
+    }
+  } else {
+    state.orders = u.orders || [];
+    state.ordersDate = u.ordersDate || null;
+  }
+
+  state.imports.shift();
+  invalidate();
+  saveState(true);
+  renderImportPage();
+  refreshAll();
+  notify('Import undone. Materials it introduced are left in place and simply read zero.', 'ok');
 }
 
 function renderImportPage() {
@@ -3113,16 +3520,21 @@ function renderImportPage() {
 
   const log = document.getElementById('importLog');
   if (!state.imports.length) { log.innerHTML = '<div class="small">Nothing imported yet.</div>'; return; }
+  const undoable = undoableImport();
   log.innerHTML = '<div class="table-wrap"><table><thead><tr>' +
-    '<th>When</th><th>Type</th><th>File</th><th class="num">Rows</th><th class="num">Added</th><th class="num">Skipped</th><th>Notes</th>' +
-    '</tr></thead><tbody>' + state.imports.slice(0, 60).map(i => {
+    '<th>When</th><th>Type</th><th>File</th><th class="num">Rows</th><th class="num">Added</th><th class="num">Skipped</th><th>Notes</th><th></th>' +
+    '</tr></thead><tbody>' + state.imports.slice(0, 60).map((i, n) => {
       const d = new Date(i.ts);
       return '<tr><td class="mono">' + d.toLocaleDateString('en-GB') + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + '</td>' +
         '<td><span class="pill info">' + SCHEMA[i.kind].label + '</span></td>' +
         '<td class="desc-cell mono" style="font-size:11px">' + esc(i.filename) + '</td>' +
         '<td class="num muted">' + i.rows + '</td><td class="num">' + i.added + '</td><td class="num muted">' + i.skipped + '</td>' +
-        '<td class="desc-cell small">' + esc((i.warn || []).join(' ')) + '</td></tr>';
-    }).join('') + '</tbody></table></div>';
+        '<td class="desc-cell small">' + esc((i.warn || []).join(' ')) + '</td>' +
+        '<td>' + (undoable && i === undoable ? '<button class="btn danger" id="undoImport">Undo</button>' : '') + '</td></tr>';
+    }).join('') + '</tbody></table></div>' +
+    '<div class="small" style="margin-top:8px">Only the most recent import can be undone — reversing them out of order could restore an older snapshot over a newer one. Undo history is kept for the last 10 imports.</div>';
+  const ub = document.getElementById('undoImport');
+  if (ub) ub.onclick = undoLastImport;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3225,7 +3637,8 @@ function wireSettings() {
     if (synced) Dropbox.disconnect();
     state = { version: 1, materials: {}, stock: {}, movements: [], orders: [], ordersDate: null,
               imports: [], mappings: { stock: {}, movements: {}, orders: {} },
-              settings: { ...DEFAULTS }, plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {} } };
+              settings: { ...DEFAULTS }, plans: {}, actuals: {},
+              plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {} } };
     invalidate(); saveState(true); boot();
   };
 }
@@ -3246,6 +3659,7 @@ function renderPage(page) {
     else if (page === 'forecast') renderForecast();
     else if (page === 'warehouse') renderWarehouse();
     else if (page === 'planning') renderPlanning();
+    else if (page === 'history') renderHistory();
     else if (page === 'import') renderImportPage();
     else if (page === 'settings') renderSettings();
   } catch (err) {
@@ -3255,6 +3669,7 @@ function renderPage(page) {
 
 function refreshAll() {
   invalidate();
+  renderDataAge();
   fillMaterialSelect(document.getElementById('fcMaterial'), false);
   fillMaterialSelect(document.getElementById('whMaterial'), true);
   renderPage(currentPage);
@@ -3329,6 +3744,9 @@ function wire() {
     if (e.target.value === 'manual' && !Object.keys(state.plan.split || {}).length) state.plan.split = computedSplit('90');
     saveState(); renderPlanning();
   };
+  document.getElementById('planSave').onclick = savePlanSnapshot;
+  document.getElementById('planExport').onclick = exportOrderPlan;
+  document.getElementById('planPrint').onclick = () => window.print();
   document.getElementById('planReset').onclick = () => {
     state.plan.split = {}; state.plan.basis = '90';
     document.getElementById('planSplitBasis').value = '90';

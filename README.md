@@ -119,6 +119,12 @@ only, the all-time average uses both.
   is what matters when a plant is already full and shipping stock back to the
   warehouse.
 
+- **History** — every month's consumption read from its 251/252 postings,
+  whether or not a plan was saved for it. Save a plan on the planning tab and
+  the month is scored against what was actually used; enter the board actually
+  produced and the real paper weight per square metre falls out, which is how
+  the waste allowance should be set rather than guessed.
+
 ## Importing
 
 Drop `.xlsx`, `.xls` or `.csv` files onto the Import tab, several at once. Each
@@ -126,6 +132,11 @@ file is classified from its headers and its columns mapped automatically
 against English, Slovene and German SAP header names. Anything the app cannot
 place, you map by hand once — the mapping is remembered and reused, and can be
 reviewed in Settings.
+
+**Any import can be undone**, one at a time, newest first — the log records what
+each commit added, replaced or overwrote. Reversing them out of order could
+restore a stale stock snapshot over a fresher one, so the log behaves as a
+stack; undo history is kept for the last ten imports.
 
 Before anything is written you get a summary of what the commit will change.
 Duplicate files are recognised by content hash, and duplicate movement rows by
@@ -141,6 +152,17 @@ are aggregated to material and plant.
 Where a material code reads grade-grammage-width (`3300-110-1950`) and the
 export carries no real description, it is spelled out as `3300 · 110 g/m² ·
 1950 mm`.
+
+## Finding out where a number came from
+
+Every usage figure on the All Materials tab links to the postings behind it —
+the window, which days counted as production days, the documents and the
+arithmetic. The header shows how old the data is, and any tab that decides
+something warns when the newest movement is more than two days back.
+
+The order plan exports to CSV and prints, since it is a list somebody acts on
+away from the screen. On a phone the materials table keeps the columns that
+answer "what is about to run out" and drops the rest.
 
 ## Where the data lives
 
