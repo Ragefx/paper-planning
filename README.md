@@ -23,6 +23,14 @@ does not. Where an export posts a 301 as a single line with a receiving plant,
 it is mirrored into that plant; MB51-style exports that already post both legs
 are used as they are.
 
+### Stock policy
+
+Four levels — minimum, ideal, maximum, over-max — set in **days of production
+at the planned rate**, so each material gets its own quantities without anyone
+maintaining a table of kilos. Minimum triggers an order and ideal sizes it;
+maximum and over-max only warn. Lead time and order multiple sit alongside
+them, and all of it lives on the Production Planning tab.
+
 ### Working days
 
 The machines run Monday to Friday, so a usage rate is **per working day**, not
@@ -86,9 +94,24 @@ only, the all-time average uses both.
 - **Warehouse Movement** — a month at a time: actual stock from the daily
   snapshots, extended backwards by unwinding the movement history for days with
   no snapshot yet, then a dashed projection ahead. Optionally split by plant.
-- **Production Planning** — enter next month's forecast consumption; it is
-  split across materials by their historical usage mix (editable) and run
-  forward to show what runs short and when.
+- **Production Planning** — enter the month's board area and grammage; the app
+  works out the paper, splits it across materials by their historical usage mix
+  (editable), and returns an order list: what to order, how much, and by when.
+
+  The tonnage is `m² × g/m² ÷ 1000`, plus an optional waste allowance — board
+  grammage being the weight of a square metre of finished board, all plies
+  together. Each material is then walked from today to the end of the plan
+  month: drawn at its current average until the month starts and at the planned
+  rate inside it, with existing open orders arriving on their dates. Whenever
+  the balance is about to fall below the **minimum**, an order is proposed
+  arriving that day, sized to bring stock back to **ideal** and rounded up to
+  the order multiple. Its order-by date is that arrival less the supplier lead
+  time; anything already inside the lead time is flagged to go out today.
+
+  Quantities already on order are shown in blue and never ordered again. The
+  **maximum** and **over-max** levels never cause an order — they warn, which
+  is what matters when a plant is already full and shipping stock back to the
+  warehouse.
 
 ## Importing
 

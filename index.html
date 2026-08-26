@@ -395,57 +395,88 @@ h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; 
 <div class="page" id="page-planning">
   <div class="page-head">
     <div class="page-title">Production Planning</div>
-    <div class="page-sub">Enter next month's production forecast and see how stock reacts</div>
+    <div class="page-sub">Forecast the month's board and get an order list — what to order, how much, and by when</div>
   </div>
-  <div class="controls">
-    <label class="fld">Plan month
-      <input type="month" id="planMonth">
-    </label>
-    <label class="fld">Forecast consumption
-      <input type="number" id="planTotal" step="any" min="0" style="width:150px" placeholder="0">
-    </label>
-    <label class="fld">Unit
-      <input type="text" id="planUnit" style="width:80px" placeholder="kg">
-    </label>
-    <label class="fld">Spread over
-      <select id="planSpread">
-        <option value="work" selected>Working days (Mon–Fri)</option>
-        <option value="cal">Calendar days</option>
-      </select>
-    </label>
-    <label class="fld">Split basis
-      <select id="planSplitBasis">
-        <option value="90" selected>Usage mix, last 90 d</option>
-        <option value="30">Usage mix, last 30 d</option>
-        <option value="all">Usage mix, all time</option>
-        <option value="manual">Manual (edited below)</option>
-      </select>
-    </label>
-    <div class="spacer"></div>
-    <button class="btn" id="planReset">Reset split</button>
+
+  <div class="card">
+    <div class="card-title">The month</div>
+    <div class="controls">
+      <label class="fld">Plan month
+        <input type="month" id="planMonth">
+      </label>
+      <label class="fld">Board produced (m²)
+        <input type="number" id="planSqm" step="any" min="0" style="width:150px" placeholder="5830000">
+      </label>
+      <label class="fld">Board grammage (g/m²)
+        <input type="number" id="planGsm" step="any" min="0" style="width:130px" placeholder="500">
+      </label>
+      <label class="fld">Waste allowance (%)
+        <input type="number" id="planWaste" step="any" min="0" style="width:120px" placeholder="0">
+      </label>
+      <label class="fld">Spread over
+        <select id="planSpread">
+          <option value="work" selected>Working days (Mon–Fri)</option>
+          <option value="cal">Calendar days</option>
+        </select>
+      </label>
+      <label class="fld">Split basis
+        <select id="planSplitBasis">
+          <option value="90" selected>Usage mix, last 90 d</option>
+          <option value="30">Usage mix, last 30 d</option>
+          <option value="all">Usage mix, all time</option>
+          <option value="manual">Manual (edited below)</option>
+        </select>
+      </label>
+      <div class="spacer"></div>
+      <button class="btn" id="planReset">Reset split</button>
+    </div>
+    <div id="planDerived"></div>
   </div>
+
+  <div class="card">
+    <div class="card-title">Stock policy</div>
+    <div class="small" style="margin-bottom:10px">
+      Set in days of production at the planned rate, so each material gets its own quantities.
+      An order is proposed whenever stock is projected to fall below <strong>minimum</strong>, sized to bring it back to <strong>ideal</strong>.
+      <strong>Maximum</strong> and <strong>over-max</strong> only warn — nothing is ordered that would breach them.
+    </div>
+    <div class="controls">
+      <label class="fld">Minimum (days) <input type="number" id="polMin" min="0" step="0.5" style="width:100px"></label>
+      <label class="fld">Ideal (days) <input type="number" id="polIdeal" min="0" step="0.5" style="width:100px"></label>
+      <label class="fld">Maximum (days) <input type="number" id="polMax" min="0" step="0.5" style="width:100px"></label>
+      <label class="fld">Over-max (days) <input type="number" id="polXMax" min="0" step="0.5" style="width:110px"></label>
+      <label class="fld">Supplier lead time (days) <input type="number" id="polLead" min="0" step="1" style="width:140px"></label>
+      <label class="fld">Order multiple (kg) <input type="number" id="polLot" min="1" step="1000" style="width:130px"></label>
+    </div>
+  </div>
+
   <div class="stats" id="planStats"></div>
+
+  <div class="card">
+    <div class="card-title">What to order</div>
+    <div id="planOrders"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" id="planChartTitle">Projected stock under this plan</div>
+    <div class="chart-box tall"><canvas id="planChart"></canvas></div>
+    <div class="legend-note">Total across every material in the plan. Solid = with the proposed orders placed; dashed = as things stand, on current stock and existing orders only. Bands show the aggregate policy levels.</div>
+  </div>
+
   <div class="split">
-    <div>
-      <div class="card">
-        <div class="card-title">Projected stock under this plan</div>
-        <div class="chart-box tall"><canvas id="planChart"></canvas></div>
-        <div class="legend-note">Each material starts from current stock, receives its open orders on their delivery dates and is consumed at the planned daily rate.</div>
-      </div>
-      <div class="card">
-        <div class="card-title">Material requirement &amp; shortfall</div>
-        <div id="planTable"></div>
-      </div>
+    <div class="card">
+      <div class="card-title">Material detail</div>
+      <div id="planTable"></div>
     </div>
     <div class="card">
       <div class="card-title">Split between materials</div>
-      <div class="small" style="margin-bottom:10px">Percentages are derived from historical usage. Edit any value to override — the split basis switches to manual.</div>
+      <div class="small" style="margin-bottom:10px">Percentages come from historical usage. Edit any value to override — the split basis switches to manual.</div>
       <div id="planSplit"></div>
     </div>
   </div>
 </div>
 
-<!-- ══════════════ IMPORT ══════════════ -->
+
 <div class="page" id="page-import">
   <div class="page-head">
     <div class="page-title">Import</div>
@@ -567,6 +598,13 @@ const DEFAULTS = {
   signMode: 'auto',
   spikeFactor: 0,
   usageDays: 'work',        // 'work' = machines run Mon–Fri, 'all' = every day
+  // Stock policy, in days of production at the planned rate
+  minDays: 5,
+  idealDays: 15,
+  maxDays: 30,
+  extraMaxDays: 45,
+  leadDays: 14,
+  lotSize: 23000,
 };
 
 let state = {
@@ -579,7 +617,7 @@ let state = {
   imports: [],     // { id, ts, kind, filename, hash, rows, added, skipped }
   mappings: { stock: {}, movements: {}, orders: {} },
   settings: { ...DEFAULTS },
-  plan: { month: '', total: 0, unit: '', spread: 'work', basis: '90', split: {} },
+  plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', basis: '90', split: {} },
 };
 
 let currentPage = 'materials';
@@ -641,7 +679,7 @@ function loadState() {
           state = { ...state, ...r };
           state.settings = { ...DEFAULTS, ...(r.settings || {}) };
           state.mappings = { stock: {}, movements: {}, orders: {}, ...(r.mappings || {}) };
-          state.plan = { month: '', total: 0, unit: '', spread: 'work', basis: '90', split: {}, ...(r.plan || {}) };
+          state.plan = { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', basis: '90', split: {}, ...(r.plan || {}) };
         }
         resolve();
       };
@@ -2480,140 +2518,311 @@ function spreadDays(mk, mode) {
   return c || n;
 }
 
-function renderPlanning() {
-  const mk = state.plan.month || monthKey(addDays(todayISO(), 30));
-  const total = Number(state.plan.total) || 0;
-  const mode = state.plan.spread || 'work';
-  const split = effectiveSplit();
-  const unit = state.plan.unit || '';
+// The month's board converted to paper. Board grammage is the weight of a
+// square metre of finished board — every ply together — so the tonnage is the
+// area times that weight, plus whatever is lost to trim and set-up.
+function planInputs() {
+  const p = state.plan;
+  const sqm = Number(p.sqm) || 0;
+  const gsm = Number(p.gsm) || 0;
+  const waste = Number(p.waste) || 0;
+  return { sqm, gsm, waste, kg: sqm * gsm / 1000 * (1 + waste / 100) };
+}
 
+function policyDays() {
+  const s = state.settings;
+  return {
+    min:   Number(s.minDays)   || 0,
+    ideal: Number(s.idealDays) || 0,
+    max:   Number(s.maxDays)   || 0,
+    xmax:  Number(s.extraMaxDays) || 0,
+    lead:  Number(s.leadDays)  || 0,
+    lot:   Math.max(1, Number(s.lotSize) || 1),
+  };
+}
+
+// Walks each material from today to the end of the plan month and proposes
+// orders. Stock is drawn at the current average until the month starts and at
+// the planned rate inside it; existing open orders arrive on their dates. When
+// the balance is about to fall below the minimum, an order is placed arriving
+// that day, sized to bring it back to the ideal level and rounded up to the
+// order multiple. The order-by date is that arrival less the lead time.
+function buildOrderPlan() {
+  const mk = state.plan.month || monthKey(addDays(todayISO(), 32));
   const monthStart = mk + '-01';
   const monthEnd = mk + '-' + String(monthDays(mk)).padStart(2, '0');
   const start = todayISO() < monthStart ? todayISO() : monthStart;
   const horizon = Math.max(1, daysBetween(start, monthEnd));
+  const mode = state.plan.spread || 'work';
   const nSpread = spreadDays(mk, mode);
+  const split = effectiveSplit();
+  const { kg } = planInputs();
+  const pol = policyDays();
 
   const codes = Object.keys(split).filter(c => split[c] > 0);
-  const rows = [];
-  const seriesByCode = {};
-  let firstShort = null;
+  const dates = [];
+  for (let i = 0; i <= horizon; i++) dates.push(addDays(start, i));
+
+  const rows = [], proposals = [];
+  const totalWith = dates.map(() => 0), totalWithout = dates.map(() => 0);
+  let aggMin = 0, aggIdeal = 0, aggMax = 0, aggXMax = 0;
 
   for (const code of codes) {
     const pct = split[code];
-    const need = total * pct / 100;
-    const daily = nSpread ? need / nSpread : 0;
+    const need = kg * pct / 100;
+    const planRate = nSpread ? need / nSpread : 0;
     const preRate = avgUsage(code, '30') || avgUsage(code, 'all');
-    const proj = project(code, {
-      start, days: horizon, scope: 'both',
-      dailyUsage: date => {
-        if (date < monthStart) return consumesOn(date) ? preRate : 0;   // run-up to the plan month
-        if (mode === 'work' && !isWorkday(date)) return 0;
-        return daily;
-      },
+    const drawOn = date => {
+      if (date < monthStart) return consumesOn(date) ? preRate : 0;
+      if (mode === 'cal') return planRate;
+      return isWorkday(date) ? planRate : 0;
+    };
+
+    // Policy levels are days of production at the rate this plan implies.
+    const refRate = planRate > 0 ? planRate : preRate;
+    const lv = { min: refRate * pol.min, ideal: refRate * pol.ideal, max: refRate * pol.max, xmax: refRate * pol.xmax };
+    aggMin += lv.min; aggIdeal += lv.ideal; aggMax += lv.max; aggXMax += lv.xmax;
+
+    // Existing open orders, overdue ones pulled to the start like everywhere else.
+    const existing = {};
+    let existingInMonth = 0, existingBefore = 0;
+    for (const o of (openOrders()[code] || [])) {
+      if (!o.delivery) continue;
+      const d = o.delivery < start ? start : o.delivery;
+      if (d > monthEnd) continue;
+      (existing[d] || (existing[d] = [])).push(o);
+      if (d >= monthStart) existingInMonth += o.qty; else existingBefore += o.qty;
+    }
+
+    const open0 = stockScope(code, 'both');
+    const sim = withProposals => {
+      let q = open0;
+      const series = [], placed = [];
+      let guard = 0, peak = open0, daysOverMax = 0, daysOverXMax = 0;
+      for (let i = 0; i < dates.length; i++) {
+        const d = dates[i];
+        if (i > 0) q -= drawOn(d);
+        if (existing[d]) q += existing[d].reduce((a, o) => a + o.qty, 0);
+        if (withProposals && refRate > 0 && q < lv.min && guard < 24) {
+          const qty = Math.max(pol.lot, Math.ceil((lv.ideal - q) / pol.lot) * pol.lot);
+          q += qty;
+          placed.push({ code, arriveBy: d, orderBy: addDays(d, -pol.lead), qty, level: q, pct });
+          guard++;
+        }
+        if (q > peak) peak = q;
+        if (lv.max > 0 && q > lv.max) daysOverMax++;
+        if (lv.xmax > 0 && q > lv.xmax) daysOverXMax++;
+        series.push(q);
+      }
+      return { series, placed, peak, daysOverMax, daysOverXMax };
+    };
+
+    const withP = sim(true), withoutP = sim(false);
+    withP.series.forEach((v, i) => { totalWith[i] += v; });
+    withoutP.series.forEach((v, i) => { totalWithout[i] += v; });
+    proposals.push(...withP.placed);
+
+    const openingIdx = daysBetween(start, monthStart) - 1;
+    rows.push({
+      code, pct, need, planRate, preRate, lv,
+      stockNow: open0,
+      opening: openingIdx < 0 ? open0
+        : withoutP.series[Math.min(openingIdx, withoutP.series.length - 1)],
+      existingInMonth, existingBefore,
+      suggestedQty: withP.placed.reduce((a, o) => a + o.qty, 0),
+      suggestedCount: withP.placed.length,
+      closing: withP.series[withP.series.length - 1],
+      peak: withP.peak, daysOverMax: withP.daysOverMax, daysOverXMax: withP.daysOverXMax,
+      closingBare: withoutP.series[withoutP.series.length - 1],
+      shortWithout: withoutP.series.some(v => v < lv.min),
+      firstOrder: withP.placed.length ? withP.placed[0].orderBy : null,
+      series: withP.series,
     });
-    seriesByCode[code] = proj;
-    const cur = stockScope(code, 'both');
-    const incoming = (openOrders()[code] || [])
-      .filter(o => o.delivery && o.delivery <= monthEnd).reduce((s, o) => s + o.qty, 0);
-    const closing = proj.points[proj.points.length - 1].qty;
-    if (proj.stockout && (!firstShort || proj.stockout < firstShort)) firstShort = proj.stockout;
-    rows.push({ code, pct, need, daily, cur, incoming, closing, stockout: proj.stockout,
-                shortfall: closing < 0 ? -closing : 0, unit: unitOf(code) });
   }
 
+  proposals.sort((a, b) => a.orderBy.localeCompare(b.orderBy) || a.code.localeCompare(b.code));
   rows.sort((a, b) => {
-    if (!!a.stockout !== !!b.stockout) return a.stockout ? -1 : 1;
-    if (a.stockout && b.stockout && a.stockout !== b.stockout) return a.stockout.localeCompare(b.stockout);
+    if (!!a.firstOrder !== !!b.firstOrder) return a.firstOrder ? -1 : 1;
+    if (a.firstOrder && b.firstOrder && a.firstOrder !== b.firstOrder) return a.firstOrder.localeCompare(b.firstOrder);
     return b.need - a.need;
   });
 
-  // ── stats ──
-  const atRisk = rows.filter(r => r.stockout).length;
-  const pctSum = codes.reduce((s, c) => s + split[c], 0);
+  return { mk, monthStart, monthEnd, start, dates, rows, proposals, nSpread, mode,
+           totalWith, totalWithout, agg: { min: aggMin, ideal: aggIdeal, max: aggMax, xmax: aggXMax } };
+}
+
+function renderPlanning() {
+  const plan = buildOrderPlan();
+  const { kg, sqm, gsm, waste } = planInputs();
+  const pol = policyDays();
+  const late = plan.proposals.filter(o => o.orderBy < todayISO());
+  const totalOrder = plan.proposals.reduce((s, o) => s + o.qty, 0);
+  const existingTotal = plan.rows.reduce((s, r) => s + r.existingInMonth, 0);
+
+  // ── the arithmetic, spelled out ──
+  document.getElementById('planDerived').innerHTML = kg
+    ? '<div class="banner info">' + fmt(sqm, 0) + ' m² × ' + fmt(gsm, 0) + ' g/m²' +
+      (waste ? ' + ' + fmt(waste, 1) + ' % waste' : '') +
+      ' = <strong>' + fmt(kg, 0) + ' kg</strong> of paper (' + fmt(kg / 1000, 1) + ' t) across ' +
+      plan.nSpread + ' ' + (plan.mode === 'work' ? 'working' : 'calendar') + ' days, ' +
+      fmt(kg / plan.nSpread, 0) + ' kg a day.</div>'
+    : '<div class="banner warn">Enter the board area and grammage above to size the month.</div>';
+
   document.getElementById('planStats').innerHTML = [
-    tile('Plan month', mk, nSpread + ' ' + (mode === 'work' ? 'working' : 'calendar') + ' days'),
-    tile('Forecast consumption', fmt(total, 0) + (unit ? '<span class="stat-unit">' + esc(unit) + '</span>' : ''),
-         total ? fmt(total / nSpread, 0) + ' per day' : 'enter a quantity above'),
-    tile('Materials in plan', fmt(codes.length, 0), 'split total ' + fmt(pctSum, 1) + ' %',
-         Math.abs(pctSum - 100) > 0.5 && codes.length ? 'accent' : ''),
-    tile('Short before month end', fmt(atRisk, 0), atRisk ? 'see table below' : 'plan is covered', atRisk ? 'danger' : ''),
-    tile('First shortage', firstShort || '—', firstShort ? daysBetween(todayISO(), firstShort) + ' days out' : 'none projected',
-         firstShort ? 'danger' : ''),
+    tile('Paper required', fmt(kg / 1000, 1) + '<span class="stat-unit">t</span>',
+         plan.rows.length + ' material(s) in the plan'),
+    tile('Stock into ' + plan.mk,
+         fmt(plan.rows.reduce((s, r) => s + Math.max(0, r.opening), 0) / 1000, 1) + '<span class="stat-unit">t</span>',
+         (() => {
+           const short = plan.rows.filter(r => r.opening < 0).length;
+           return short ? short + ' material(s) already short by then' : 'as things stand on ' + plan.monthStart;
+         })(),
+         plan.rows.some(r => r.opening < 0) ? 'danger' : ''),
+    tile('Already on order', fmt(existingTotal / 1000, 1) + '<span class="stat-unit">t</span>',
+         'arriving inside ' + plan.mk),
+    tile('Still to order', fmt(totalOrder / 1000, 1) + '<span class="stat-unit">t</span>',
+         plan.proposals.length + ' order(s) proposed', totalOrder ? 'accent' : ''),
+    tile('Order today', fmt(late.length, 0),
+         late.length ? 'lead time already passed' : 'nothing overdue', late.length ? 'danger' : ''),
+    (() => {
+      const over = plan.rows.filter(r => r.peak > r.lv.max && r.lv.max > 0);
+      const hard = over.filter(r => r.peak > r.lv.xmax);
+      return tile('Above maximum', fmt(over.length, 0),
+        hard.length ? hard.length + ' past the over-max ceiling' : 'none past the ceiling',
+        hard.length ? 'danger' : over.length ? 'accent' : '');
+    })(),
   ].join('');
 
-  // ── chart: total line plus every material that runs short ──
-  const dates = [];
-  for (let i = 0; i <= horizon; i++) dates.push(addDays(start, i));
-  const totalSeries = dates.map((d, i) =>
-    codes.reduce((s, c) => s + (seriesByCode[c].points[i] ? seriesByCode[c].points[i].qty : 0), 0));
+  // ── the deliverable: what, when, how much ──
+  const oHost = document.getElementById('planOrders');
+  if (!kg) {
+    oHost.innerHTML = '<div class="small">Nothing to work out until the month is sized.</div>';
+  } else if (!plan.proposals.length) {
+    oHost.innerHTML = '<div class="banner ok">No orders needed. Current stock and what is already on order cover the whole plan without falling below the minimum.</div>';
+  } else {
+    const byWeek = {};
+    for (const o of plan.proposals) (byWeek[o.orderBy] || (byWeek[o.orderBy] = [])).push(o);
+    oHost.innerHTML =
+      (late.length ? '<div class="banner err">' + late.length + ' order(s) are already inside the ' + pol.lead +
+        '-day lead time and should go out today to arrive when needed.</div>' : '') +
+      '<div class="table-wrap"><table><thead><tr>' +
+      '<th>Order by</th><th>Material</th><th class="num">Quantity</th><th>To arrive</th><th class="num">Days out</th><th>Why</th>' +
+      '</tr></thead><tbody>' +
+      Object.keys(byWeek).sort().map(d => byWeek[d].map((o, i) => {
+        const dd = daysBetween(todayISO(), o.orderBy);
+        const overdue = o.orderBy < todayISO();
+        return '<tr>' +
+          '<td class="mono"' + (overdue ? ' style="color:var(--red);font-weight:600"' : '') + '>' +
+            (i === 0 ? esc(o.orderBy) + (overdue ? ' ⚠' : '') : '') + '</td>' +
+          '<td><span class="mono">' + esc(o.code) + '</span> <span class="muted">' +
+            esc((state.materials[o.code] || {}).desc || '') + '</span></td>' +
+          '<td class="num"><strong>' + fmt(o.qty, 0) + '</strong> <span class="muted" style="font-size:10px">KG</span></td>' +
+          '<td class="mono">' + esc(o.arriveBy) + '</td>' +
+          '<td class="num muted">' + (dd < 0 ? Math.abs(dd) + ' late' : dd) + '</td>' +
+          '<td class="small">would drop below the ' + fmt(pol.min, 1) + '-day minimum</td>' +
+        '</tr>';
+      }).join('')).join('') + '</tbody></table></div>' +
+      '<div class="small" style="margin-top:8px">' + plan.proposals.length + ' order(s), ' + fmt(totalOrder, 0) +
+      ' kg total, rounded up to ' + fmt(pol.lot, 0) + ' kg. Order-by dates assume a ' + pol.lead + '-day lead time.</div>';
+  }
 
-  const shortCodes = rows.filter(r => r.stockout).slice(0, 6).map(r => r.code);
-  const palette = ['--red', '--orange', '--purple', '--pink', '--blue', '--teal'].map(cssVar);
-  const datasets = [lineDs('Total stock, all planned materials', totalSeries, cssVar('--amber'), false, true)];
-  shortCodes.forEach((c, i) => {
-    datasets.push(lineDs(c + ' — short from ' + seriesByCode[c].stockout,
-      seriesByCode[c].points.map(p => p.qty), palette[i % palette.length], true));
-  });
-
-  const opt = chartBase();
-  opt.scales.y.beginAtZero = false;
-  opt.scales.x.ticks.callback = (v, i) => i % Math.ceil(dates.length / 15) === 0 ? shortDate(dates[i]) : '';
-  opt.plugins.tooltip.callbacks = {
-    title: items => dates[items[0].dataIndex],
-    label: ctx => ctx.dataset.label.split(' — ')[0] + ': ' + fmt(ctx.parsed.y),
-  };
-  if (!codes.length || !total) {
+  // ── chart: with and without the proposals, against the policy bands ──
+  if (!kg || !plan.rows.length) {
     if (charts.planChart) { charts.planChart.destroy(); delete charts.planChart; }
   } else {
-    drawChart('planChart', { type: 'line', data: { labels: dates, datasets }, options: opt, plugins: [zeroLine(cssVar('--red'))] });
+    const opt = chartBase();
+    opt.scales.y.beginAtZero = false;
+    opt.scales.x.ticks.callback = (v, i) => i % Math.ceil(plan.dates.length / 14) === 0 ? shortDate(plan.dates[i]) : '';
+    opt.plugins.tooltip.callbacks = {
+      title: items => plan.dates[items[0].dataIndex],
+      label: ctx => ctx.dataset.label + ': ' + fmt(ctx.parsed.y, 0) + ' kg',
+    };
+    const band = (label, value, color, dash) => ({
+      label, data: plan.dates.map(() => value), borderColor: color, borderWidth: 1,
+      borderDash: dash, pointRadius: 0, fill: false, tension: 0,
+    });
+    document.getElementById('planChartTitle').textContent =
+      'Projected stock under this plan · ' + plan.mk;
+    drawChart('planChart', {
+      type: 'line',
+      data: {
+        labels: plan.dates,
+        datasets: [
+          lineDs('With the proposed orders', plan.totalWith, cssVar('--amber'), false, true),
+          lineDs('As things stand', plan.totalWithout, cssVar('--text-2'), true),
+          band('Minimum', plan.agg.min, cssVar('--red'), [4, 4]),
+          band('Ideal', plan.agg.ideal, cssVar('--green'), [2, 3]),
+          band('Maximum', plan.agg.max, cssVar('--blue'), [4, 4]),
+          band('Over-max', plan.agg.xmax, cssVar('--purple'), [1, 4]),
+        ],
+      },
+      options: opt,
+      plugins: [zeroLine(cssVar('--red'))],
+    });
   }
 
-  // ── requirement table ──
+  // ── per-material detail ──
   const tHost = document.getElementById('planTable');
-  if (!rows.length) {
+  if (!plan.rows.length) {
     tHost.innerHTML = emptyState('Nothing to plan yet',
-      'Import movements so the app can work out the usage mix, then enter a forecast quantity.');
+      'Import movements so the usage mix can be worked out, then size the month above.');
   } else {
     tHost.innerHTML = '<div class="table-wrap"><table><thead><tr>' +
-      '<th>Material</th><th class="num">Split %</th><th class="num">Required</th><th class="num">Per day</th>' +
-      '<th class="num">Stock now</th><th class="num">Incoming</th><th class="num">Month end</th><th>Runs out</th>' +
-      '</tr></thead><tbody>' + rows.map(r =>
-        '<tr><td><span class="mono">' + esc(r.code) + '</span> <span class="muted">' + esc((state.materials[r.code] || {}).desc || '') + '</span></td>' +
-        '<td class="num">' + fmt(r.pct, 1) + '</td>' +
-        '<td class="num">' + fmt(r.need, 0) + '</td>' +
-        '<td class="num muted">' + fmt(r.daily) + '</td>' +
-        '<td class="num">' + fmt(r.cur, 0) + '</td>' +
-        '<td class="num' + (r.incoming ? '' : ' muted') + '">' + (r.incoming ? fmt(r.incoming, 0) : '—') + '</td>' +
-        '<td class="num" style="' + (r.closing < 0 ? 'color:var(--red);font-weight:600' : '') + '">' + fmt(r.closing, 0) + '</td>' +
-        '<td>' + (r.stockout ? '<span class="pill crit">' + esc(r.stockout) + '</span>' : '<span class="pill ok">covered</span>') + '</td></tr>'
-      ).join('') + '</tbody></table></div>';
+      '<th>Material</th><th class="num">Split %</th><th class="num">Needs</th><th class="num">Stock now</th>' +
+      '<th class="num">Into ' + esc(plan.mk) + '</th><th class="num">On order</th><th class="num">To order</th>' +
+      '<th class="num">Month end</th><th>Against policy</th>' +
+      '</tr></thead><tbody>' + plan.rows.map(r => {
+        const st = r.closing < r.lv.min ? ['crit', 'below minimum']
+                 : r.peak > r.lv.xmax && r.lv.xmax > 0 ? ['crit', 'over max']
+                 : r.peak > r.lv.max && r.lv.max > 0 ? ['warn', 'above maximum']
+                 : ['ok', 'within policy'];
+        return '<tr>' +
+          '<td><span class="mono">' + esc(r.code) + '</span> <span class="muted">' + esc((state.materials[r.code] || {}).desc || '') + '</span></td>' +
+          '<td class="num">' + fmt(r.pct, 1) + '</td>' +
+          '<td class="num">' + fmt(r.need, 0) + '</td>' +
+          '<td class="num muted">' + fmt(r.stockNow, 0) + '</td>' +
+          '<td class="num"' + (r.opening < 0 ? ' style="color:var(--red);font-weight:600" title="Runs out before the month starts"' : '') + '>' +
+            fmt(r.opening, 0) + '</td>' +
+          '<td class="num' + (r.existingInMonth ? '' : ' muted') + '">' +
+            (r.existingInMonth ? '<span class="pill info">' + fmt(r.existingInMonth, 0) + '</span>' : '—') + '</td>' +
+          '<td class="num">' + (r.suggestedQty ? '<strong>' + fmt(r.suggestedQty, 0) + '</strong> <span class="muted" style="font-size:10px">×' + r.suggestedCount + '</span>' : '—') + '</td>' +
+          '<td class="num">' + fmt(r.closing, 0) + '</td>' +
+          '<td><span class="pill ' + st[0] + '">' + st[1] + '</span></td>' +
+        '</tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<div class="small" style="margin-top:8px">“Into ' + esc(plan.mk) + '” is the stock the month opens with as things stand — current stock, less usage, plus existing deliveries up to ' +
+      esc(plan.monthEnd.slice(0, 8)) + '01. A red figure means that material runs out before the month begins; the proposed orders fix it, which is why “Month end” can be healthy where this is not. ' +
+      'Quantities already on order are shown in blue and are never ordered again.</div>';
   }
 
-  // ── split editor ──
+  renderSplitEditor();
+}
+
+function renderSplitEditor() {
+  const split = effectiveSplit();
   const sHost = document.getElementById('planSplit');
   const editable = allMaterialCodes().filter(c => split[c] > 0 || usageTotal(c, 'all') > 0);
   if (!editable.length) {
     sHost.innerHTML = '<div class="small">No usage history yet — import movement files first.</div>';
-  } else {
-    sHost.innerHTML = editable.map(c =>
-      '<div class="map-row" style="margin-bottom:6px">' +
-      '<span class="fname" title="' + esc(materialLabel(c)) + '">' + esc(c) + '</span>' +
-      '<input type="number" step="0.1" min="0" data-split="' + esc(c) + '" value="' + (split[c] ? split[c].toFixed(1) : '0') + '">' +
-      '</div>').join('') +
-      '<div class="small" style="margin-top:8px">Total ' + fmt(editable.reduce((s, c) => s + (split[c] || 0), 0), 1) + ' %</div>';
-    sHost.querySelectorAll('input[data-split]').forEach(inp => {
-      inp.onchange = () => {
-        const base = effectiveSplit();
-        base[inp.dataset.split] = Number(inp.value) || 0;
-        state.plan.split = base;
-        state.plan.basis = 'manual';
-        document.getElementById('planSplitBasis').value = 'manual';
-        saveState(); renderPlanning();
-      };
-    });
+    return;
   }
+  sHost.innerHTML = editable.map(c =>
+    '<div class="map-row" style="margin-bottom:6px">' +
+    '<span class="fname" title="' + esc(materialLabel(c)) + '">' + esc(c) + '</span>' +
+    '<input type="number" step="0.1" min="0" data-split="' + esc(c) + '" value="' + (split[c] ? split[c].toFixed(1) : '0') + '">' +
+    '</div>').join('') +
+    '<div class="small" style="margin-top:8px">Total ' + fmt(editable.reduce((s, c) => s + (split[c] || 0), 0), 1) + ' %</div>';
+  sHost.querySelectorAll('input[data-split]').forEach(inp => {
+    inp.onchange = () => {
+      const base = effectiveSplit();
+      base[inp.dataset.split] = Number(inp.value) || 0;
+      state.plan.split = base;
+      state.plan.basis = 'manual';
+      document.getElementById('planSplitBasis').value = 'manual';
+      saveState(); renderPlanning();
+    };
+  });
 }
-
 // ═══════════════════════════════════════════════════════════
 // PAGE: IMPORT
 // ═══════════════════════════════════════════════════════════
@@ -2968,7 +3177,7 @@ function wireSettings() {
     if (synced) Dropbox.disconnect();
     state = { version: 1, materials: {}, stock: {}, movements: [], orders: [], ordersDate: null,
               imports: [], mappings: { stock: {}, movements: {}, orders: {} },
-              settings: { ...DEFAULTS }, plan: { month: '', total: 0, unit: '', spread: 'work', basis: '90', split: {} } };
+              settings: { ...DEFAULTS }, plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', basis: '90', split: {} } };
     invalidate(); saveState(true); boot();
   };
 }
@@ -3045,10 +3254,27 @@ function wire() {
   });
 
   // Planning
-  document.getElementById('planMonth').onchange = e => { state.plan.month = e.target.value; saveState(); renderPlanning(); };
-  document.getElementById('planTotal').onchange = e => { state.plan.total = Number(e.target.value) || 0; saveState(); renderPlanning(); };
-  document.getElementById('planUnit').onchange = e => { state.plan.unit = e.target.value.trim(); saveState(); renderPlanning(); };
-  document.getElementById('planSpread').onchange = e => { state.plan.spread = e.target.value; saveState(); renderPlanning(); };
+  const planField = (id, key, cast) => {
+    document.getElementById(id).onchange = e => {
+      state.plan[key] = cast ? cast(e.target.value) : e.target.value;
+      saveState(); renderPlanning();
+    };
+  };
+  planField('planMonth', 'month');
+  planField('planSqm', 'sqm', Number);
+  planField('planGsm', 'gsm', Number);
+  planField('planWaste', 'waste', Number);
+  planField('planSpread', 'spread');
+
+  // Stock policy lives in settings so the same levels apply wherever they are read.
+  [['polMin', 'minDays'], ['polIdeal', 'idealDays'], ['polMax', 'maxDays'],
+   ['polXMax', 'extraMaxDays'], ['polLead', 'leadDays'], ['polLot', 'lotSize']]
+    .forEach(([id, key]) => {
+      document.getElementById(id).onchange = e => {
+        state.settings[key] = Number(e.target.value) || 0;
+        invalidate(); saveState(); renderPlanning();
+      };
+    });
   document.getElementById('planSplitBasis').onchange = e => {
     state.plan.basis = e.target.value;
     if (e.target.value === 'manual' && !Object.keys(state.plan.split || {}).length) state.plan.split = computedSplit('90');
@@ -3077,10 +3303,18 @@ function boot() {
   document.getElementById('whMonth').value = monthKey(todayISO());
   document.getElementById('planMonth').value = state.plan.month || monthKey(addDays(todayISO(), 32));
   state.plan.month = document.getElementById('planMonth').value;
-  document.getElementById('planTotal').value = state.plan.total || '';
-  document.getElementById('planUnit').value = state.plan.unit || '';
+  document.getElementById('planSqm').value = state.plan.sqm || '';
+  document.getElementById('planGsm').value = state.plan.gsm || '';
+  document.getElementById('planWaste').value = state.plan.waste || '';
   document.getElementById('planSpread').value = state.plan.spread || 'work';
   document.getElementById('planSplitBasis').value = state.plan.basis || '90';
+  const s = state.settings;
+  document.getElementById('polMin').value = s.minDays;
+  document.getElementById('polIdeal').value = s.idealDays;
+  document.getElementById('polMax').value = s.maxDays;
+  document.getElementById('polXMax').value = s.extraMaxDays;
+  document.getElementById('polLead').value = s.leadDays;
+  document.getElementById('polLot').value = s.lotSize;
   refreshAll();
   renderImportPage();
   renderSettings();
