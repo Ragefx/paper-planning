@@ -33,9 +33,27 @@
   --purple: #7c3aed;
   --orange: #ea580c;
   --pink: #db2777;
-  --c-si10: #7c3aed;
-  --c-si11: #0d9488;
-  --radius: 6px;
+  /* Data series — validated categorical slots. Colour follows the entity:
+     slot 1 is stock, slot 2 the warehouse plant, slot 3 deliveries. Never cycled. */
+  --s1: #2a78d6;
+  --s2: #eb6834;
+  --s3: #1baf7a;
+  --c-si10: #eb6834;
+  --c-si11: #2a78d6;
+  /* Status — reserved, never used for a series. Always paired with a label. */
+  --ok: #0ca30c;
+  --warn: #fab219;
+  --serious: #ec835a;
+  --crit: #d03b3b;
+  /* Text-safe status inks: the mark colours above are too light to set type in. */
+  --ok-ink: #006300;
+  --warn-ink: #8a5a00;
+  --crit-ink: #c02622;
+  --grid: #e8e8e4;
+  --ring: rgba(11,11,11,.07);
+  --shadow: 0 1px 2px rgba(16,20,32,.05), 0 2px 8px rgba(16,20,32,.04);
+  --radius: 8px;
+  --radius-sm: 5px;
   --font-mono: 'IBM Plex Mono', monospace;
   --font-sans: 'IBM Plex Sans', sans-serif;
 }
@@ -63,8 +81,21 @@
   --purple: #a78bfa;
   --orange: #fb923c;
   --pink: #f472b6;
-  --c-si10: #a78bfa;
-  --c-si11: #2dd4bf;
+  --s1: #3987e5;
+  --s2: #d95926;
+  --s3: #199e70;
+  --c-si10: #d95926;
+  --c-si11: #3987e5;
+  --ok: #0ca30c;
+  --warn: #fab219;
+  --serious: #ec835a;
+  --crit: #d03b3b;
+  --ok-ink: #4ade80;
+  --warn-ink: #fab219;
+  --crit-ink: #f87171;
+  --grid: #232833;
+  --ring: rgba(255,255,255,.07);
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 10px rgba(0,0,0,.22);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -75,12 +106,20 @@
     --teal: #2dd4bf; --teal-dim: rgba(45,212,191,0.24); --teal-glow: rgba(45,212,191,0.12);
     --red: #f87171; --red-glow: rgba(248,113,113,0.14); --green: #4ade80; --blue: #60a5fa;
     --purple: #a78bfa; --orange: #fb923c; --pink: #f472b6;
-    --c-si10: #a78bfa; --c-si11: #2dd4bf;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+    --c-si10: #d95926; --c-si11: #3987e5;
+    --ok: #0ca30c; --warn: #fab219; --serious: #ec835a; --crit: #d03b3b;
+    --ok-ink: #4ade80; --warn-ink: #fab219; --crit-ink: #f87171;
+    --grid: #232833; --ring: rgba(255,255,255,.07);
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 10px rgba(0,0,0,.22);
   }
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: var(--bg-0); color: var(--text-0); font-family: var(--font-sans); font-size: 14px; min-height: 100vh; }
+body {
+  background: var(--bg-0); color: var(--text-0); font-family: var(--font-sans);
+  font-size: 14px; min-height: 100vh; -webkit-font-smoothing: antialiased;
+}
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg-0); }
 ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
@@ -89,22 +128,38 @@ body { background: var(--bg-0); color: var(--text-0); font-family: var(--font-sa
 .header {
   background: var(--bg-1); border-bottom: 1px solid var(--border);
   box-shadow: 0 1px 3px rgba(0,0,0,0.07);
-  padding: 0 20px; display: flex; align-items: center; gap: 16px;
-  height: 56px; position: sticky; top: 0; z-index: 100;
+  padding: 0 20px; display: flex; align-items: center; gap: 18px;
+  height: 58px; position: sticky; top: 0; z-index: 100;
 }
-.logo { font-family: var(--font-mono); font-weight: 600; font-size: 14px; letter-spacing: .14em; color: var(--amber); white-space: nowrap; }
-.logo span { color: var(--text-2); }
-.tabs { display: flex; gap: 2px; margin-left: 8px; overflow-x: auto; }
+.logo {
+  font-family: var(--font-mono); font-weight: 600; font-size: 13px; letter-spacing: .18em;
+  color: var(--text-0); white-space: nowrap; display: flex; align-items: center; gap: 8px;
+}
+.logo::before {
+  content: ''; width: 9px; height: 9px; border-radius: 2px;
+  background: var(--amber); box-shadow: 0 0 0 3px var(--amber-glow);
+}
+.logo span { color: var(--text-2); font-weight: 400; }
+.tabs { display: flex; gap: 1px; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
 .tab {
-  font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
-  color: var(--text-2); background: none; border: none; border-bottom: 2px solid transparent;
-  padding: 8px 12px; cursor: pointer; white-space: nowrap; transition: color .12s, border-color .12s;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--text-2); background: none; border: none; border-radius: var(--radius-sm);
+  padding: 7px 11px; cursor: pointer; white-space: nowrap; position: relative;
+  transition: color .12s, background .12s;
 }
-.tab:hover { color: var(--text-0); }
-.tab.active { color: var(--amber); border-bottom-color: var(--amber); }
-.header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
-.save-indicator { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; color: var(--text-2); white-space: nowrap; }
-.save-indicator.saved { color: var(--green); }
+.tab:hover { color: var(--text-0); background: var(--bg-2); }
+.tab.active { color: var(--text-0); background: var(--bg-2); font-weight: 500; }
+.tab.active::after {
+  content: ''; position: absolute; left: 11px; right: 11px; bottom: -1px;
+  height: 2px; border-radius: 2px 2px 0 0; background: var(--amber);
+}
+.header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.save-indicator {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em;
+  color: var(--text-2); white-space: nowrap;
+}
+.save-indicator.saved { color: var(--ok-ink); }
 .icon-btn {
   background: var(--bg-2); border: 1px solid var(--border); color: var(--text-1);
   border-radius: var(--radius); width: 30px; height: 30px; cursor: pointer; font-size: 14px;
@@ -113,25 +168,51 @@ body { background: var(--bg-0); color: var(--text-0); font-family: var(--font-sa
 .icon-btn:hover { background: var(--bg-3); color: var(--text-0); }
 
 /* ── LAYOUT ── */
-.page { max-width: 1500px; margin: 0 auto; padding: 20px; display: none; }
+.page { max-width: 1560px; margin: 0 auto; padding: 24px 24px 56px; display: none; }
 .page.active { display: block; }
-.page-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-.page-title { font-family: var(--font-mono); font-size: 15px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
-.page-sub { font-size: 12px; color: var(--text-2); }
+.page-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
+.page-title {
+  font-family: var(--font-mono); font-size: 19px; font-weight: 600;
+  letter-spacing: .02em; text-transform: none; color: var(--text-0);
+}
+.page-sub { font-size: 12.5px; color: var(--text-2); }
 
-.card { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
-.card-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-2); margin-bottom: 12px; }
+.card {
+  background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 18px; margin-bottom: 18px; box-shadow: var(--shadow);
+}
+.card-title {
+  font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-2); margin-bottom: 14px; display: flex; align-items: center; gap: 7px;
+}
+.card-title::before {
+  content: ''; width: 3px; height: 11px; border-radius: 2px; background: var(--border-light); flex: none;
+}
 
 /* ── STAT TILES ── */
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 16px; }
-.stat { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
-.stat-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-2); margin-bottom: 6px; }
-.stat-value { font-family: var(--font-mono); font-size: 20px; font-weight: 600; color: var(--text-0); line-height: 1.1; }
-.stat-value.sm { font-size: 16px; }
-.stat-unit { font-size: 11px; color: var(--text-2); font-weight: 400; margin-left: 4px; }
-.stat-note { font-size: 11px; color: var(--text-2); margin-top: 5px; }
-.stat.accent { border-color: var(--amber); background: var(--amber-glow); }
-.stat.danger { border-color: var(--red); background: var(--red-glow); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(186px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.stat {
+  background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 13px 15px 14px; box-shadow: var(--shadow); position: relative; overflow: hidden;
+}
+.stat::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: transparent;
+}
+.stat-label {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--text-2); margin-bottom: 8px;
+}
+.stat-value {
+  font-family: var(--font-mono); font-size: 23px; font-weight: 600; color: var(--text-0);
+  line-height: 1.05; letter-spacing: -.01em;
+}
+.stat-value.sm { font-size: 17px; }
+.stat-unit { font-size: 11px; color: var(--text-2); font-weight: 400; margin-left: 4px; letter-spacing: 0; }
+.stat-note { font-size: 11px; color: var(--text-2); margin-top: 7px; line-height: 1.45; }
+.stat.accent::before { background: var(--warn); }
+.stat.danger::before { background: var(--crit); }
+.stat.good::before   { background: var(--ok); }
+.stat.danger .stat-value { color: var(--crit-ink); }
 
 /* ── CONTROLS ── */
 .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
@@ -148,7 +229,9 @@ input[type=number] { font-family: var(--font-mono); }
   font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
 }
 .btn:hover { background: var(--bg-3); }
+.btn { transition: background .12s, border-color .12s; }
 .btn.primary { background: var(--amber); border-color: var(--amber); color: #1a1200; font-weight: 600; }
+.btn.danger { color: var(--crit-ink); border-color: color-mix(in srgb, var(--crit) 45%, transparent); }
 .btn.primary:hover { filter: brightness(1.08); }
 .btn.danger { color: var(--red); border-color: var(--red); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
@@ -164,32 +247,47 @@ input[type=number] { font-family: var(--font-mono); }
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-1); }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 thead th {
-  background: var(--bg-2); font-family: var(--font-mono); font-size: 10px; letter-spacing: .07em;
-  text-transform: uppercase; color: var(--text-2); text-align: left; padding: 9px 10px;
+  background: var(--bg-2); font-family: var(--font-mono); font-size: 10px; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--text-2); text-align: left; padding: 10px 12px;
   border-bottom: 1px solid var(--border); white-space: nowrap; position: sticky; top: 0; z-index: 2;
 }
-thead th.sortable { cursor: pointer; user-select: none; }
+thead th.sortable { cursor: pointer; user-select: none; transition: color .1s; }
 thead th.sortable:hover { color: var(--text-0); }
-tbody td { padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+tbody td {
+  padding: 9px 12px; border-bottom: 1px solid var(--grid); white-space: nowrap;
+  border-left: 3px solid transparent;
+}
+tbody td + td { border-left: none; }
 tbody tr:last-child td { border-bottom: none; }
-tbody tr:hover { background: var(--bg-2); }
+tbody tr:hover td { background: var(--bg-2); }
 tbody tr.clickable { cursor: pointer; }
+/* A rail on the row, so severity reads down the left edge before any number is parsed. */
+tbody tr.risk-crit td:first-child { border-left-color: var(--crit); }
+tbody tr.risk-warn td:first-child { border-left-color: var(--warn); }
 .num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .mono { font-family: var(--font-mono); }
 .muted { color: var(--text-2); }
 .desc-cell { white-space: normal; min-width: 220px; max-width: 380px; color: var(--text-1); }
 
-.pill { display: inline-block; font-family: var(--font-mono); font-size: 10px; letter-spacing: .05em; padding: 2px 7px; border-radius: 10px; border: 1px solid var(--border-light); color: var(--text-1); }
-.pill.si10 { color: var(--c-si10); border-color: var(--c-si10); }
-.pill.si11 { color: var(--c-si11); border-color: var(--c-si11); }
-.pill.ok   { color: var(--green); border-color: var(--green); }
-.pill.warn { color: var(--amber); border-color: var(--amber); }
-.pill.crit { color: var(--red); border-color: var(--red); }
-.pill.info { color: var(--blue); border-color: var(--blue); }
+.pill {
+  display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono);
+  font-size: 10px; letter-spacing: .04em; padding: 2px 8px; border-radius: 20px;
+  border: 1px solid var(--border-light); color: var(--text-1); background: transparent;
+}
+.pill::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex: none; }
+.pill.si10 { color: var(--c-si10); border-color: color-mix(in srgb, var(--c-si10) 45%, transparent); }
+.pill.si11 { color: var(--c-si11); border-color: color-mix(in srgb, var(--c-si11) 45%, transparent); }
+.pill.ok   { color: var(--ok-ink);   border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.pill.warn { color: var(--warn-ink); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.pill.crit { color: var(--crit-ink); border-color: color-mix(in srgb, var(--crit) 45%, transparent); }
+.pill.info { color: var(--s1);       border-color: color-mix(in srgb, var(--s1) 45%, transparent); }
 
 .days-bar { display: flex; align-items: center; gap: 7px; justify-content: flex-end; }
-.days-track { width: 54px; height: 5px; border-radius: 3px; background: var(--bg-3); overflow: hidden; flex: none; }
-.days-fill { height: 100%; border-radius: 3px; }
+a.drill { color: inherit; text-decoration: none; border-bottom: 1px dotted transparent; }
+tr:hover a.drill { border-bottom-color: var(--border-light); }
+a.drill:hover { color: var(--s1); border-bottom-color: var(--s1); }
+.days-track { width: 56px; height: 6px; border-radius: 3px; background: var(--bg-3); overflow: hidden; flex: none; }
+.days-fill { height: 100%; border-radius: 3px; transition: width .2s; }
 
 /* ── CHART ── */
 .chart-box { position: relative; height: 380px; }
@@ -218,11 +316,16 @@ tbody tr.clickable { cursor: pointer; }
 .map-row .fname { font-family: var(--font-mono); font-size: 11px; color: var(--text-1); }
 .map-row .fname i { color: var(--red); font-style: normal; }
 
-.banner { border-radius: var(--radius); padding: 10px 13px; font-size: 12.5px; margin-bottom: 12px; border: 1px solid; line-height: 1.5; }
-.banner.info { border-color: var(--blue); background: rgba(37,99,235,.08); color: var(--text-0); }
-.banner.warn { border-color: var(--amber); background: var(--amber-glow); }
-.banner.err  { border-color: var(--red); background: var(--red-glow); }
-.banner.ok   { border-color: var(--green); background: rgba(22,163,74,.08); }
+.banner {
+  border-radius: var(--radius); padding: 11px 14px 11px 15px; font-size: 12.5px;
+  margin-bottom: 12px; line-height: 1.55; border: 1px solid var(--border);
+  border-left: 3px solid var(--border-light); background: var(--bg-2); color: var(--text-1);
+}
+.banner strong { color: var(--text-0); }
+.banner.info { border-left-color: var(--s1); }
+.banner.warn { border-left-color: var(--warn); }
+.banner.err  { border-left-color: var(--crit); }
+.banner.ok   { border-left-color: var(--ok); }
 
 .empty { text-align: center; padding: 48px 20px; color: var(--text-2); }
 .empty-icon { font-size: 30px; margin-bottom: 10px; opacity: .55; }
@@ -1552,7 +1655,7 @@ function pick(row, map, key) {
 function describeCode(code) {
   const m = /^(\d+)-(\d+)-(\d+)$/.exec(code);
   if (!m) return '';
-  return m[1] + ' · ' + Number(m[2]) + ' g/m² · ' + Number(m[3]) + ' mm';
+  return Number(m[2]) + ' g/m² · ' + Number(m[3]) + ' mm';
 }
 function noteMaterial(code, desc, unit) {
   if (!code) return;
@@ -2000,24 +2103,39 @@ function project(code, opts) {
 // CHART HELPERS
 // ═══════════════════════════════════════════════════════════
 function chartBase() {
-  const grid = cssVar('--border');
+  const grid = cssVar('--grid');
   const tick = cssVar('--text-2');
   return {
     responsive: true, maintainAspectRatio: false,
     interaction: { mode: 'index', intersect: false },
+    layout: { padding: { top: 4, right: 8, bottom: 0, left: 0 } },
     plugins: {
-      legend: { labels: { color: cssVar('--text-1'), font: { family: "'IBM Plex Mono', monospace", size: 11 },
-                          boxWidth: 12, boxHeight: 3, usePointStyle: false } },
+      legend: {
+        labels: {
+          color: cssVar('--text-1'), font: { family: "'IBM Plex Mono', monospace", size: 10.5 },
+          boxWidth: 8, boxHeight: 8, padding: 16, usePointStyle: true, pointStyleWidth: 12,
+        },
+      },
       tooltip: {
         backgroundColor: cssVar('--bg-1'), borderColor: cssVar('--border-light'), borderWidth: 1,
-        titleColor: cssVar('--text-0'), bodyColor: cssVar('--text-1'), padding: 10,
+        titleColor: cssVar('--text-0'), bodyColor: cssVar('--text-1'), padding: 11,
+        cornerRadius: 6, displayColors: true, boxPadding: 4,
         titleFont: { family: "'IBM Plex Mono', monospace", size: 11 },
         bodyFont: { family: "'IBM Plex Sans', sans-serif", size: 12 },
       },
     },
     scales: {
-      x: { grid: { color: grid, drawBorder: false }, ticks: { color: tick, font: { family: "'IBM Plex Mono', monospace", size: 10 }, maxRotation: 0, autoSkipPadding: 14 } },
-      y: { grid: { color: grid, drawBorder: false }, ticks: { color: tick, font: { family: "'IBM Plex Mono', monospace", size: 10 } }, beginAtZero: true },
+      x: {
+        grid: { display: false, drawBorder: false },
+        border: { color: cssVar('--border-light') },
+        ticks: { color: tick, font: { family: "'IBM Plex Mono', monospace", size: 10 }, maxRotation: 0, autoSkipPadding: 14, padding: 6 },
+      },
+      y: {
+        grid: { color: grid, drawBorder: false, lineWidth: 1 },
+        border: { display: false },
+        ticks: { color: tick, font: { family: "'IBM Plex Mono', monospace", size: 10 }, padding: 8 },
+        beginAtZero: true,
+      },
     },
   };
 }
@@ -2045,10 +2163,13 @@ function arrivalDataset(arrivals, labels, color) {
   const byDate = {};
   for (const a of arrivals) byDate[a.date] = a;
   return {
-    label: 'Arrivals',
+    label: 'Deliveries',
     data: labels.map(d => byDate[d] ? byDate[d].level : null),
-    showLine: false, pointRadius: 6, pointHoverRadius: 8,
-    pointStyle: 'triangle', pointBackgroundColor: color, pointBorderColor: color,
+    showLine: false, pointRadius: 6, pointHoverRadius: 9,
+    pointStyle: 'triangle',
+    pointBackgroundColor: color,
+    // 2px surface ring keeps the marker legible where it sits on the line
+    pointBorderColor: cssVar('--bg-1'), pointBorderWidth: 2,
     _arrivals: byDate,
   };
 }
@@ -2166,7 +2287,9 @@ function renderMaterials() {
   const maxDays = 30;
   const body = rows.map(r => {
     const lvl = rowRisk(r);
-    const col = lvl === 'crit' ? 'var(--red)' : lvl === 'warn' ? 'var(--amber)' : 'var(--green)';
+    // Mark colour for the bar, the text-safe ink for the number beside it.
+    const col = lvl === 'crit' ? 'var(--crit)' : lvl === 'warn' ? 'var(--warn)' : 'var(--ok)';
+    const ink = lvl === 'crit' ? 'var(--crit-ink)' : lvl === 'warn' ? 'var(--warn-ink)' : 'var(--ok-ink)';
     const pct = (r.noUsage || r.days === null) ? (r.capped ? 100 : 0)
               : Math.min(100, r.days / maxDays * 100);
     // Only mark a material as propped up when it would genuinely run short
@@ -2178,7 +2301,8 @@ function renderMaterials() {
     if (r.overdue) notes.push(fmt(r.overdue, 0) + ' is past its delivery date and is assumed to arrive today');
     const orderTitle = notes.join('. ');
     const marks = (r.undated ? '*' : '') + (r.overdue ? '!' : '');
-    return '<tr class="clickable" data-code="' + esc(r.code) + '">' +
+    return '<tr class="clickable' + (lvl === 'crit' ? ' risk-crit' : lvl === 'warn' ? ' risk-warn' : '') +
+      '" data-code="' + esc(r.code) + '">' +
       '<td class="mono">' + esc(r.code) + '</td>' +
       '<td class="desc-cell compact-hide">' + esc(r.desc || '—') + '</td>' +
       '<td class="num compact-hide' + (r.wh ? '' : ' muted') + '">' + fmt(r.wh, 0) + '</td>' +
@@ -2186,14 +2310,15 @@ function renderMaterials() {
       '<td class="num"><strong>' + fmt(r.total, 0) + '</strong>' + (r.unit ? ' <span class="muted" style="font-size:10px">' + esc(r.unit) + '</span>' : '') + '</td>' +
       '<td class="num compact-hide' + (r.ordered ? '' : ' muted') + '"' + (orderTitle ? ' title="' + esc(orderTitle) + '"' : '') + '>' +
         (r.ordered ? fmt(r.ordered, 0) + (marks ? ' <span style="font-size:10px;color:' +
-          (r.overdue ? 'var(--red)' : 'var(--text-2)') + '">' + marks + '</span>' : '') : '—') + '</td>' +
-      '<td class="num"><a href="#" data-usage="' + esc(r.code) + '" style="color:inherit;text-decoration:underline dotted;text-underline-offset:3px" title="Show the postings behind this">' +
+          (r.overdue ? 'var(--crit-ink)' : 'var(--text-2)') + '">' + marks + '</span>' : '') : '—') + '</td>' +
+      '<td class="num"><a href="#" class="drill" data-usage="' + esc(r.code) + '" title="Show the postings behind this">' +
         (r.usage ? fmt(r.usage) : '<span class="muted">—</span>') + '</a></td>' +
       '<td class="num"><div class="days-bar"><div class="days-track"><div class="days-fill" style="width:' + pct + '%;background:' + col + '"></div></div>' +
-        '<span style="color:' + (lvl === 'none' ? 'var(--text-2)' : col) + '">' + fmtCover(r) + '</span></div></td>' +
+        '<span style="color:' + (lvl === 'none' ? 'var(--text-2)' : ink) + ';font-weight:' + (lvl === 'crit' ? 600 : 400) + '">' +
+        fmtCover(r) + '</span></div></td>' +
       '<td class="num muted compact-hide"' + (propped ? ' title="Deliveries are what close this gap"' : '') + '>' +
         fmtCover({ days: r.bareDays, capped: r.bareCapped, noUsage: r.noUsage }) +
-        (propped ? ' <span style="color:var(--blue)">↑</span>' : '') + '</td>' +
+        (propped ? ' <span style="color:var(--s1)" title="Deliveries close this gap">↑</span>' : '') + '</td>' +
     '</tr>';
   }).join('');
 
@@ -2205,7 +2330,7 @@ function renderMaterials() {
     '<strong>Cover w/o deliveries</strong> is the same walk with nothing arriving — ' +
     'a ↑ marks materials that would run short without a delivery landing in time. ' +
     '<strong>*</strong> marks quantities on order with no confirmed date, which cannot be projected; ' +
-    '<strong style="color:var(--red)">!</strong> marks orders already past their delivery date, which the projection ' +
+    '<strong style="color:var(--crit-ink)">!</strong> marks orders already past their delivery date, which the projection ' +
     'assumes arrive today — chase those before trusting the number.</div>';
 
   host.querySelectorAll('th.sortable').forEach(th => th.onclick = () => {
@@ -2379,10 +2504,8 @@ function renderForecast() {
     data: {
       labels,
       datasets: [
-        { label: 'Projected stock', data: proj.points.map(p => p.qty),
-          borderColor: cssVar('--amber'), backgroundColor: cssVar('--amber-glow'),
-          borderWidth: 2, fill: true, tension: .15, pointRadius: 0, pointHoverRadius: 4 },
-        Object.assign(arrivalDataset(proj.arrivals, labels, cssVar('--blue')), { type: 'line', borderColor: 'transparent' }),
+        lineDs('Projected stock', proj.points.map(p => p.qty), cssVar('--s1'), false, true),
+        Object.assign(arrivalDataset(proj.arrivals, labels, cssVar('--s3')), { type: 'line', borderColor: 'transparent' }),
       ],
     },
     options: opt,
@@ -2401,7 +2524,7 @@ function renderForecast() {
           '<td><span class="pill ' + (o.plant === PLANT_WH() ? 'si10' : 'si11') + '">' + esc(o.plant) + '</span></td>' +
           '<td class="num">' + fmt(o.qty, 0) + '</td>' +
           '<td class="mono' + (o.delivery ? '' : ' muted') + '">' + esc(o.delivery || 'not confirmed') + '</td>' +
-          '<td class="mono ' + (dd !== null && dd < 0 ? '' : 'muted') + '" style="' + (dd !== null && dd < 0 ? 'color:var(--red)' : '') + '">' +
+          '<td class="mono ' + (dd !== null && dd < 0 ? '' : 'muted') + '" style="' + (dd !== null && dd < 0 ? 'color:var(--crit-ink)' : '') + '">' +
             (dd === null ? '—' : dd < 0 ? Math.abs(dd) + ' d overdue' : dd === 0 ? 'today' : 'in ' + dd + ' d') + '</td>' +
           '<td class="muted">' + esc(o.vendor || '—') + '</td></tr>';
       }).join('') + '</tbody></table></div>';
@@ -2522,6 +2645,12 @@ function renderWarehouse() {
     return arr ? arr.reduce((s, o) => s + o.qty, 0) : 0;
   };
 
+  function joinToActual(proj, actual) {
+    const i = proj.findIndex(v => v !== null && v !== undefined);
+    if (i > 0 && actual && actual[i - 1] !== null && actual[i - 1] !== undefined) proj[i - 1] = actual[i - 1];
+    return proj;
+  }
+
   function buildProjection(startQty) {
     const out = dates.map(() => null);
     if (monthIsPast || startQty === null || startQty === undefined) return out;
@@ -2540,7 +2669,7 @@ function renderWarehouse() {
   }
 
   const datasets = [];
-  const cWh = cssVar('--c-si10'), cPr = cssVar('--c-si11'), cTot = cssVar('--amber');
+  const cWh = cssVar('--c-si10'), cPr = cssVar('--c-si11'), cTot = cssVar('--s1');
 
   function actualForScope() {
     if (whScope === PLANT_WH()) return actWh;
@@ -2551,11 +2680,12 @@ function renderWarehouse() {
   if (whScope === 'split') {
     datasets.push(lineDs(PLANT_WH() + ' actual', maskFuture(actWh, dates, today), cWh, false));
     datasets.push(lineDs(PLANT_PROD() + ' actual', maskFuture(actPr, dates, today), cPr, false));
-    datasets.push(lineDs(PLANT_PROD() + ' projected', buildProjection(scopeStockFor(code, PLANT_PROD())), cPr, true));
+    datasets.push(lineDs(PLANT_PROD() + ' projected',
+      joinToActual(buildProjection(scopeStockFor(code, PLANT_PROD())), maskFuture(actPr, dates, today)), cPr, true));
   } else {
     const act = maskFuture(actualForScope(), dates, today);
     datasets.push(lineDs('Actual stock', act, cTot, false, true));
-    datasets.push(lineDs('Projected', buildProjection(scopeStockFor(code, whScope)), cTot, true));
+    datasets.push(lineDs('Projected', joinToActual(buildProjection(scopeStockFor(code, whScope)), act), cTot, true));
   }
 
   // Arrival markers sit on the line they belong to.
@@ -2570,7 +2700,7 @@ function renderWarehouse() {
   const byDate = {};
   for (const a of arrivals) byDate[a.date] = a;
   if (arrivals.length) {
-    datasets.push(Object.assign(arrivalDataset(arrivals, dates, cssVar('--blue')), { type: 'line', borderColor: 'transparent' }));
+    datasets.push(Object.assign(arrivalDataset(arrivals, dates, cssVar('--s3')), { type: 'line', borderColor: 'transparent' }));
   }
 
   const opt = chartBase();
@@ -2622,9 +2752,11 @@ function renderWarehouse() {
 function lineDs(label, data, color, dashed, fill) {
   return {
     label, data, borderColor: color,
-    backgroundColor: fill ? color + '22' : 'transparent',
+    backgroundColor: fill ? color + '1a' : 'transparent',   // ~10% wash, never a block
     borderWidth: 2, borderDash: dashed ? [5, 4] : [], fill: !!fill,
-    tension: .15, pointRadius: 0, pointHoverRadius: 4, spanGaps: false,
+    tension: .15, pointRadius: 0, pointHoverRadius: 5,
+    pointBackgroundColor: color, pointBorderColor: cssVar('--bg-1'), pointBorderWidth: 2,
+    borderCapStyle: 'round', borderJoinStyle: 'round', spanGaps: false,
   };
 }
 function scopeStockFor(code, scope) {
@@ -2930,8 +3062,8 @@ function renderPlanning() {
       Object.keys(byWeek).sort().map(d => byWeek[d].map((o, i) => {
         const dd = daysBetween(todayISO(), o.orderBy);
         const overdue = o.orderBy < todayISO();
-        return '<tr>' +
-          '<td class="mono"' + (overdue ? ' style="color:var(--red);font-weight:600"' : '') + '>' +
+        return '<tr' + (overdue ? ' class="risk-crit"' : '') + '>' +
+          '<td class="mono"' + (overdue ? ' style="color:var(--crit-ink);font-weight:600"' : '') + '>' +
             (i === 0 ? esc(o.orderBy) + (overdue ? ' ⚠' : '') : '') + '</td>' +
           '<td><span class="mono">' + esc(o.code) + '</span> <span class="muted">' +
             esc((state.materials[o.code] || {}).desc || '') + '</span></td>' +
@@ -2967,12 +3099,12 @@ function renderPlanning() {
       data: {
         labels: plan.dates,
         datasets: [
-          lineDs('With the proposed orders', plan.totalWith, cssVar('--amber'), false, true),
+          lineDs('With the proposed orders', plan.totalWith, cssVar('--s1'), false, true),
           lineDs('As things stand', plan.totalWithout, cssVar('--text-2'), true),
-          band('Minimum', plan.agg.min, cssVar('--red'), [4, 4]),
-          band('Ideal', plan.agg.ideal, cssVar('--green'), [2, 3]),
-          band('Maximum', plan.agg.max, cssVar('--blue'), [4, 4]),
-          band('Over-max', plan.agg.xmax, cssVar('--purple'), [1, 4]),
+          band('Minimum', plan.agg.min, cssVar('--crit'), [4, 4]),
+          band('Ideal', plan.agg.ideal, cssVar('--ok'), [2, 3]),
+          band('Maximum', plan.agg.max, cssVar('--warn'), [4, 4]),
+          band('Over-max', plan.agg.xmax, cssVar('--serious'), [1, 4]),
         ],
       },
       options: opt,
@@ -3000,7 +3132,7 @@ function renderPlanning() {
           '<td class="num">' + fmt(r.pct, 1) + '</td>' +
           '<td class="num">' + fmt(r.need, 0) + '</td>' +
           '<td class="num muted">' + fmt(r.stockNow, 0) + '</td>' +
-          '<td class="num"' + (r.opening < 0 ? ' style="color:var(--red);font-weight:600" title="Runs out before the month starts"' : '') + '>' +
+          '<td class="num"' + (r.opening < 0 ? ' style="color:var(--crit-ink);font-weight:600" title="Runs out before the month starts"' : '') + '>' +
             fmt(r.opening, 0) + '</td>' +
           '<td class="num' + (r.existingInMonth ? '' : ' muted') + '">' +
             (r.existingInMonth ? '<span class="pill info">' + fmt(r.existingInMonth, 0) + '</span>' : '—') + '</td>' +
@@ -3142,9 +3274,11 @@ function renderHistory() {
         labels: chartRows.map(r => r.mk),
         datasets: [
           { label: 'Planned', data: chartRows.map(r => r.planKg ? r.planKg / 1000 : null),
-            backgroundColor: cssVar('--blue') + '99', borderColor: cssVar('--blue'), borderWidth: 1 },
+            backgroundColor: cssVar('--s1'), borderRadius: { topLeft: 4, topRight: 4 },
+            borderSkipped: 'bottom', maxBarThickness: 24, borderWidth: 0 },
           { label: 'Consumed', data: chartRows.map(r => r.actKg / 1000),
-            backgroundColor: cssVar('--amber') + '99', borderColor: cssVar('--amber'), borderWidth: 1 },
+            backgroundColor: cssVar('--s2'), borderRadius: { topLeft: 4, topRight: 4 },
+            borderSkipped: 'bottom', maxBarThickness: 24, borderWidth: 0 },
         ],
       },
       options: opt,
@@ -3162,7 +3296,7 @@ function renderHistory() {
     '<th class="num">Paper planned</th><th class="num">Paper used</th><th class="num">Error</th>' +
     '<th class="num">g/m² planned</th><th class="num">g/m² actual</th><th class="num">Received</th><th></th>' +
     '</tr></thead><tbody>' + rows.map(r => {
-      const vCol = r.variance === null ? '' : Math.abs(r.variance) > 10 ? 'var(--red)' : Math.abs(r.variance) > 5 ? 'var(--amber)' : 'var(--green)';
+      const vCol = r.variance === null ? '' : Math.abs(r.variance) > 10 ? 'var(--crit-ink)' : Math.abs(r.variance) > 5 ? 'var(--warn-ink)' : 'var(--ok-ink)';
       return '<tr>' +
         '<td class="mono">' + esc(r.mk) + '</td>' +
         '<td class="num muted">' + (r.plan && r.plan.sqm ? fmt(r.plan.sqm, 0) : '—') + '</td>' +

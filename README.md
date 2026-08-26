@@ -201,6 +201,21 @@ Uploads are gzipped. A year of movements at roughly 120 rows a day is about
 Sync is optional. Without it the app runs exactly as before, confined to one
 browser, and Settings still offers JSON backup and restore.
 
+## Colour
+
+Series colours come from a validated categorical palette and are assigned by
+**entity, never by rank**: stock is slot 1, the warehouse plant slot 2,
+deliveries slot 3. A projection is the same quantity as the actual it continues,
+so it shares that colour and is distinguished by a dashed line rather than a
+second hue. Both modes were re-validated against this app's own surfaces —
+lightness band, chroma floor, colour-vision separation, and contrast all pass on
+the all-pairs test.
+
+Status colours (good / warning / serious / critical) are reserved and never used
+for a series. They always ship beside a text label, never carrying meaning by
+hue alone, and figures set in type use darker text-safe inks since the mark
+colours are too light to read as text on white.
+
 ## Dependencies
 
 Chart.js and SheetJS, both loaded from cdnjs at runtime. Dropbox sync, when
