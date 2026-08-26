@@ -410,7 +410,7 @@ h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; 
 <body>
 
 <div class="header">
-  <div class="logo">PAPER<span>·</span>PLAN</div>
+  <div class="logo" id="logo">PAPER<span>·</span>PLAN</div>
   <div class="tabs">
     <button class="tab active" data-page="materials">All Materials</button>
     <button class="tab" data-page="forecast">Material Forecast</button>
@@ -742,6 +742,9 @@ h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; 
   <div class="card">
     <div class="card-title">Data &amp; backup</div>
     <div id="dataStats" class="small" style="margin-bottom:12px"></div>
+    <div class="small" style="margin-bottom:12px">
+      App version <code id="buildStamp"></code> — compare with the version noted in the repository if a change seems missing.
+    </div>
     <div class="row">
       <button class="btn" id="btnExport">Export backup (JSON)</button>
       <button class="btn" id="btnImportBackup">Restore backup</button>
@@ -760,6 +763,8 @@ h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; 
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
+const BUILD = '2026-08-26 · 17';
+
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
   '102': { label: 'GR reversal',              sign: -1, kind: 'receipt' },
@@ -3711,6 +3716,7 @@ function renderSettings() {
   Dropbox.render();
 
   const snapCount = PLANTS().reduce((n, p) => n + snapDates(p).length, 0);
+  document.getElementById('buildStamp').textContent = BUILD;
   document.getElementById('dataStats').innerHTML =
     '<strong>' + Object.keys(state.materials).length + '</strong> materials · ' +
     '<strong>' + state.movements.length + '</strong> movement rows' +
@@ -3901,6 +3907,8 @@ function wire() {
 
 function boot() {
   applyTheme();
+  const lg = document.getElementById('logo');
+  if (lg) lg.title = 'Paper Plan · build ' + BUILD;
   document.getElementById('whMonth').value = monthKey(todayISO());
   document.getElementById('planMonth').value = state.plan.month || monthKey(addDays(todayISO(), 32));
   state.plan.month = document.getElementById('planMonth').value;
