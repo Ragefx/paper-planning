@@ -100,7 +100,13 @@ only, the all-time average uses both.
 
   The tonnage is `m² × g/m² ÷ 1000`, plus an optional waste allowance — board
   grammage being the weight of a square metre of finished board, all plies
-  together. Each material is then walked from today to the end of the plan
+  together. It is spread over Monday–Friday, over every calendar day, or over
+  an **agreed production-day count** — shift calendars are settled ahead of the
+  month and need not match either. Where more days are agreed than the month
+  has weekdays, weekends are added one per week rather than bunched at one end;
+  where fewer are agreed, weekdays are dropped the same way. Whichever is
+  chosen, the month consumes exactly the planned tonnage — only the daily rate,
+  and so the timing of the orders, changes. Each material is then walked from today to the end of the plan
   month: drawn at its current average until the month starts and at the planned
   rate inside it, with existing open orders arriving on their dates. Whenever
   the balance is about to fall below the **minimum**, an order is proposed

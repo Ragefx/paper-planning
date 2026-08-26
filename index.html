@@ -417,7 +417,11 @@ h5.sec { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; 
         <select id="planSpread">
           <option value="work" selected>Working days (Mon–Fri)</option>
           <option value="cal">Calendar days</option>
+          <option value="fixed">Agreed production days</option>
         </select>
+      </label>
+      <label class="fld">Production days
+        <input type="number" id="planProdDays" min="0" step="1" style="width:120px" placeholder="22">
       </label>
       <label class="fld">Split basis
         <select id="planSplitBasis">
@@ -617,7 +621,7 @@ let state = {
   imports: [],     // { id, ts, kind, filename, hash, rows, added, skipped }
   mappings: { stock: {}, movements: {}, orders: {} },
   settings: { ...DEFAULTS },
-  plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', basis: '90', split: {} },
+  plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {} },
 };
 
 let currentPage = 'materials';
@@ -679,7 +683,7 @@ function loadState() {
           state = { ...state, ...r };
           state.settings = { ...DEFAULTS, ...(r.settings || {}) };
           state.mappings = { stock: {}, movements: {}, orders: {}, ...(r.mappings || {}) };
-          state.plan = { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', basis: '90', split: {}, ...(r.plan || {}) };
+          state.plan = { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {}, ...(r.plan || {}) };
         }
         resolve();
       };
@@ -2508,14 +2512,40 @@ function effectiveSplit() {
   return computedSplit(basis);
 }
 
-function spreadDays(mk, mode) {
+// The days of a plan month the line actually runs.
+//
+// Mon–Fri and every calendar day are simple counts. An agreed shift calendar is
+// not: the number is negotiated ahead of the month and need not match either,
+// so the total has to be spread over exactly that many days. Where more days
+// are agreed than there are weekdays, weekends are added — evenly spaced, not
+// bunched at one end — and where fewer are agreed, weekdays are dropped the
+// same way. Which particular Saturday gets a shift is not knowable here, but
+// the count and the rate are right, and at a fortnight's lead time that is
+// what the ordering turns on.
+function productionDays(mk, mode, explicit) {
   const n = monthDays(mk);
-  let c = 0;
-  for (let i = 1; i <= n; i++) {
-    const d = mk + '-' + String(i).padStart(2, '0');
-    if (mode === 'cal' || isWorkday(d)) c++;
+  const all = [];
+  for (let i = 1; i <= n; i++) all.push(mk + '-' + String(i).padStart(2, '0'));
+  if (mode === 'cal') return all;
+  const week = all.filter(isWorkday);
+  if (mode !== 'fixed') return week;
+
+  const target = Math.max(0, Math.round(Number(explicit) || 0));
+  if (!target) return week;                       // not filled in yet
+  if (target === week.length) return week;
+  if (target < week.length) {
+    const keep = [];
+    for (let i = 0; i < target; i++) keep.push(week[Math.floor(i * week.length / target)]);
+    return keep;
   }
-  return c || n;
+  const weekend = all.filter(d => !isWorkday(d));
+  const extra = Math.min(weekend.length, target - week.length);
+  const added = [];
+  for (let i = 0; i < extra; i++) added.push(weekend[Math.floor(i * weekend.length / extra)]);
+  return week.concat(added).sort();
+}
+function spreadDays(mk, mode, explicit) {
+  return productionDays(mk, mode, explicit).length || monthDays(mk);
 }
 
 // The month's board converted to paper. Board grammage is the weight of a
@@ -2554,7 +2584,9 @@ function buildOrderPlan() {
   const start = todayISO() < monthStart ? todayISO() : monthStart;
   const horizon = Math.max(1, daysBetween(start, monthEnd));
   const mode = state.plan.spread || 'work';
-  const nSpread = spreadDays(mk, mode);
+  const runDays = productionDays(mk, mode, state.plan.prodDays);
+  const runSet = new Set(runDays);
+  const nSpread = runDays.length || monthDays(mk);
   const split = effectiveSplit();
   const { kg } = planInputs();
   const pol = policyDays();
@@ -2574,8 +2606,7 @@ function buildOrderPlan() {
     const preRate = avgUsage(code, '30') || avgUsage(code, 'all');
     const drawOn = date => {
       if (date < monthStart) return consumesOn(date) ? preRate : 0;
-      if (mode === 'cal') return planRate;
-      return isWorkday(date) ? planRate : 0;
+      return runSet.has(date) ? planRate : 0;
     };
 
     // Policy levels are days of production at the rate this plan implies.
@@ -2647,7 +2678,7 @@ function buildOrderPlan() {
     return b.need - a.need;
   });
 
-  return { mk, monthStart, monthEnd, start, dates, rows, proposals, nSpread, mode,
+  return { mk, monthStart, monthEnd, start, dates, rows, proposals, nSpread, mode, runDays,
            totalWith, totalWithout, agg: { min: aggMin, ideal: aggIdeal, max: aggMax, xmax: aggXMax } };
 }
 
@@ -2660,13 +2691,30 @@ function renderPlanning() {
   const existingTotal = plan.rows.reduce((s, r) => s + r.existingInMonth, 0);
 
   // ── the arithmetic, spelled out ──
-  document.getElementById('planDerived').innerHTML = kg
+  const weekendRun = plan.runDays.filter(d => !isWorkday(d)).length;
+  const dayWord = plan.mode === 'cal' ? 'calendar days'
+                : plan.mode === 'fixed' ? 'agreed production days'
+                : 'working days';
+  const dayDetail = plan.mode === 'fixed'
+    ? ' (' + (plan.runDays.length - weekendRun) + ' weekday' + (plan.runDays.length - weekendRun === 1 ? '' : 's') +
+      (weekendRun ? ' + ' + weekendRun + ' weekend' : '') + ')'
+    : '';
+  const askedFor = Math.round(Number(state.plan.prodDays) || 0);
+  const capped = plan.mode === 'fixed' && askedFor > 0 && askedFor !== plan.runDays.length;
+
+  document.getElementById('planDerived').innerHTML = (kg
     ? '<div class="banner info">' + fmt(sqm, 0) + ' m² × ' + fmt(gsm, 0) + ' g/m²' +
       (waste ? ' + ' + fmt(waste, 1) + ' % waste' : '') +
       ' = <strong>' + fmt(kg, 0) + ' kg</strong> of paper (' + fmt(kg / 1000, 1) + ' t) across ' +
-      plan.nSpread + ' ' + (plan.mode === 'work' ? 'working' : 'calendar') + ' days, ' +
+      plan.nSpread + ' ' + dayWord + dayDetail + ', ' +
       fmt(kg / plan.nSpread, 0) + ' kg a day.</div>'
-    : '<div class="banner warn">Enter the board area and grammage above to size the month.</div>';
+    : '<div class="banner warn">Enter the board area and grammage above to size the month.</div>') +
+    (plan.mode === 'fixed' && !askedFor
+      ? '<div class="banner warn">No production-day count entered, so the month is spread over its ' +
+        plan.nSpread + ' weekdays.</div>' : '') +
+    (capped
+      ? '<div class="banner warn">' + plan.mk + ' has only ' + monthDays(plan.mk) +
+        ' days, so the ' + askedFor + ' agreed days were capped at ' + plan.nSpread + '.</div>' : '');
 
   document.getElementById('planStats').innerHTML = [
     tile('Paper required', fmt(kg / 1000, 1) + '<span class="stat-unit">t</span>',
@@ -3177,7 +3225,7 @@ function wireSettings() {
     if (synced) Dropbox.disconnect();
     state = { version: 1, materials: {}, stock: {}, movements: [], orders: [], ordersDate: null,
               imports: [], mappings: { stock: {}, movements: {}, orders: {} },
-              settings: { ...DEFAULTS }, plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', basis: '90', split: {} } };
+              settings: { ...DEFAULTS }, plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {} } };
     invalidate(); saveState(true); boot();
   };
 }
@@ -3265,6 +3313,7 @@ function wire() {
   planField('planGsm', 'gsm', Number);
   planField('planWaste', 'waste', Number);
   planField('planSpread', 'spread');
+  planField('planProdDays', 'prodDays', Number);
 
   // Stock policy lives in settings so the same levels apply wherever they are read.
   [['polMin', 'minDays'], ['polIdeal', 'idealDays'], ['polMax', 'maxDays'],
@@ -3307,6 +3356,7 @@ function boot() {
   document.getElementById('planGsm').value = state.plan.gsm || '';
   document.getElementById('planWaste').value = state.plan.waste || '';
   document.getElementById('planSpread').value = state.plan.spread || 'work';
+  document.getElementById('planProdDays').value = state.plan.prodDays || '';
   document.getElementById('planSplitBasis').value = state.plan.basis || '90';
   const s = state.settings;
   document.getElementById('polMin').value = s.minDays;
