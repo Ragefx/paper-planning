@@ -743,7 +743,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-08-26 · 18';
+const BUILD = '2026-08-26 · 19';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -2102,7 +2102,7 @@ function chartBase() {
         },
       },
       tooltip: {
-        backgroundColor: cssVar('--bg-1'), borderColor: cssVar('--border-light'), borderWidth: 1,
+        backgroundColor: cssVar('--pane'), borderColor: cssVar('--border-light'), borderWidth: 1,
         titleColor: cssVar('--text-0'), bodyColor: cssVar('--text-1'), padding: 11,
         cornerRadius: 6, displayColors: true, boxPadding: 4,
         titleFont: { family: "'IBM Plex Mono', monospace", size: 11 },
@@ -2149,24 +2149,34 @@ function arrivalDataset(arrivals, labels, color) {
   for (const a of arrivals) byDate[a.date] = a;
   return {
     label: 'Deliveries',
+    isArrivals: true,
     data: labels.map(d => byDate[d] ? byDate[d].level : null),
     showLine: false, pointRadius: 6, pointHoverRadius: 9,
     pointStyle: 'triangle',
     pointBackgroundColor: color,
     // 2px surface ring keeps the marker legible where it sits on the line
-    pointBorderColor: cssVar('--bg-1'), pointBorderWidth: 2,
+    pointBorderColor: cssVar('--pane'), pointBorderWidth: 2,
     _arrivals: byDate,
   };
 }
+// A day can collect a lot of deliveries — every overdue order lands on the
+// projection start — so the tooltip lists the largest few and counts the rest.
+// The arrivals table under the chart carries the full list.
+const TOOLTIP_ORDERS = 6;
 function arrivalTooltip(byDate, labels) {
   return {
     label(ctx) {
       const a = byDate[labels[ctx.dataIndex]];
       if (!a) return null;
-      const lines = ['Arriving: ' + fmt(a.qty)];
-      for (const o of a.orders) {
-        lines.push('  ' + (o.po || 'order') + (o.item ? '/' + o.item : '') + ' · ' + fmt(o.qty) +
+      const unit = a.orders.length && unitOf(a.orders[0].code) ? ' ' + unitOf(a.orders[0].code) : '';
+      const lines = ['Arriving: ' + fmt(a.qty) + unit + ' · ' + a.orders.length + ' order(s)'];
+      const sorted = a.orders.slice().sort((x, y) => y.qty - x.qty);
+      for (const o of sorted.slice(0, TOOLTIP_ORDERS)) {
+        lines.push('  ' + (o.po || 'order') + (o.item ? '/' + o.item : '') + ' · ' + fmt(o.qty, 0) +
                    (o.vendor ? ' · ' + o.vendor : '') + (o.overdue ? ' · overdue' : ''));
+      }
+      if (sorted.length > TOOLTIP_ORDERS) {
+        lines.push('  + ' + (sorted.length - TOOLTIP_ORDERS) + ' more — full list in the table below');
       }
       return lines;
     },
@@ -2474,9 +2484,8 @@ function renderForecast() {
   opt.plugins.tooltip.callbacks = {
     title: items => shortDate(labels[items[0].dataIndex]),
     label(ctx) {
-      if (ctx.datasetIndex === 1) {
-        const a = byDate[labels[ctx.dataIndex]];
-        if (!a) return null;
+      if (ctx.dataset.isArrivals) {
+        if (!byDate[labels[ctx.dataIndex]]) return null;
         return arrivalTooltip(byDate, labels).label(ctx);
       }
       return 'Stock: ' + fmt(ctx.parsed.y) + (unit ? ' ' + unit : '');
@@ -2694,7 +2703,7 @@ function renderWarehouse() {
   opt.plugins.tooltip.callbacks = {
     title: items => dates[items[0].dataIndex],
     label(ctx) {
-      if (ctx.dataset.label === 'Arrivals') return arrivalTooltip(byDate, dates).label(ctx);
+      if (ctx.dataset.isArrivals) return arrivalTooltip(byDate, dates).label(ctx);
       if (ctx.parsed.y === null) return null;
       return ctx.dataset.label + ': ' + fmt(ctx.parsed.y);
     },
@@ -2740,7 +2749,7 @@ function lineDs(label, data, color, dashed, fill) {
     backgroundColor: fill ? color + '1a' : 'transparent',   // ~10% wash, never a block
     borderWidth: 2, borderDash: dashed ? [5, 4] : [], fill: !!fill,
     tension: .15, pointRadius: 0, pointHoverRadius: 5,
-    pointBackgroundColor: color, pointBorderColor: cssVar('--bg-1'), pointBorderWidth: 2,
+    pointBackgroundColor: color, pointBorderColor: cssVar('--pane'), pointBorderWidth: 2,
     borderCapStyle: 'round', borderJoinStyle: 'round', spanGaps: false,
   };
 }
@@ -3430,7 +3439,7 @@ function renderStaged() {
         '</select></div>').join('') + '</div>' : '') +
       '</div>';
 
-    return '<div class="card" style="background:var(--bg-2)">' + head + notes + mapUI +
+    return '<div class="card" style="background:var(--pane2)">' + head + notes + mapUI +
       '<div class="row" style="margin-top:12px">' +
       '<button class="btn primary" data-commit="' + e.id + '"' + (miss.length ? ' disabled' : '') + '>Commit to database</button>' +
       '<button class="btn" data-discard="' + e.id + '">Discard</button>' +
