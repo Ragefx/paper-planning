@@ -119,6 +119,18 @@ only, the all-time average uses both.
   is what matters when a plant is already full and shipping stock back to the
   warehouse.
 
+- **Stock Balancing** — which deliveries to send to the other plant so neither
+  runs out of room. Capacity here is **tonnes**, not days of cover: a warehouse
+  fills up by weight whatever the line is consuming. Both plants are projected
+  forward from current stock, their dated deliveries and the production plant's
+  usage; wherever the production plant is set to cross its capacity, the
+  latest-arriving delivery still routed there is switched to the warehouse —
+  latest first, because those are the ones a supplier can still be told about,
+  and redirecting a delivery costs one journey where moving the same paper
+  after it lands costs two. Nothing is moved that would push the receiving
+  plant past its own capacity, and if redirection alone cannot solve it the tab
+  says so rather than pretending.
+
 - **History** — every month's consumption read from its 251/252 postings,
   whether or not a plan was saved for it. Save a plan on the planning tab and
   the month is scored against what was actually used; enter the board actually

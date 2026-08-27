@@ -390,6 +390,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
     <button class="tab" data-page="forecast"><i>◈</i>Material Forecast</button>
     <button class="tab" data-page="warehouse"><i>▦</i>Warehouse Movement</button>
     <button class="tab" data-page="planning"><i>◉</i>Production Planning</button>
+    <button class="tab" data-page="balance"><i>⇄</i>Stock Balancing</button>
     <button class="tab" data-page="history"><i>◷</i>History</button>
     <div class="nav-sep">Data</div>
     <button class="tab" data-page="import"><i>↓</i>Import</button>
@@ -619,6 +620,40 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 </div>
 
 
+<div class="page" id="page-balance">
+  <div class="page-head">
+    <div class="page-title">Stock Balancing</div>
+    <div class="page-sub">Keeping each plant inside its capacity by sending deliveries to the right one</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Capacity</div>
+    <div class="small" style="margin-bottom:10px">
+      Set in tonnes of stock a plant can hold, not days of cover — a warehouse fills up by weight whatever the consumption rate.
+      <strong>Target</strong> is the level to aim for, <strong>capacity</strong> the level not to cross.
+    </div>
+    <div class="controls" id="capControls"></div>
+  </div>
+
+  <div class="stats" id="balStats"></div>
+
+  <div class="card">
+    <div class="card-title">What to move</div>
+    <div id="balActions"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" id="balChartTitle">Projected level by plant</div>
+    <div class="chart-box tall"><canvas id="balChart"></canvas></div>
+    <div class="legend-note">Solid = the level with the moves below applied. Dashed = as things stand. Flat lines mark each plant's capacity and target.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Deliveries in the window</div>
+    <div id="balOrders"></div>
+  </div>
+</div>
+
 <div class="page" id="page-history">
   <div class="page-head">
     <div class="page-title">History</div>
@@ -743,7 +778,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-08-26 · 20';
+const BUILD = '2026-08-26 · 21';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -777,6 +812,11 @@ const DEFAULTS = {
   extraMaxDays: 45,
   leadDays: 14,
   lotSize: 23000,
+  // Plant capacity in tonnes. A warehouse fills by weight, so this is not
+  // expressed in days of cover like the ordering policy is.
+  capacity: { SI11: 2600, SI10: 2600 },
+  target:   { SI11: 2100, SI10: 2100 },
+  balanceDays: 45,
 };
 
 let state = {
@@ -3182,6 +3222,239 @@ function renderSplitEditor() {
   });
 }
 
+
+// ═══════════════════════════════════════════════════════════
+// PAGE: STOCK BALANCING
+// ═══════════════════════════════════════════════════════════
+// A plant fills up by weight, so capacity here is tonnes, not days of cover.
+// SI11 runs the line and consumes; SI10 only holds stock. When SI11 is
+// projected past its capacity the cheapest fix is to send a delivery that has
+// not left the supplier yet to SI10 instead — one journey rather than two.
+// Only when there is nothing left to redirect does moving stock that has
+// already landed become worth suggesting.
+function capOf(plant) { return (Number((state.settings.capacity || {})[plant]) || 0) * 1000; }
+function targetOf(plant) { return (Number((state.settings.target || {})[plant]) || 0) * 1000; }
+
+function buildBalancePlan() {
+  const start = todayISO();
+  const days = Math.max(7, Number(state.settings.balanceDays) || 45);
+  const prod = PLANT_PROD(), wh = PLANT_WH();
+  const dates = [];
+  for (let i = 0; i <= days; i++) dates.push(addDays(start, i));
+
+  const codes = allMaterialCodes();
+  const rate = codes.reduce((s, c) => s + avgUsage(c, '30'), 0);   // consumed at the production plant
+
+  // Every dated open order, bucketed by the plant it is currently routed to.
+  const deliveries = [];
+  for (const c of codes) {
+    for (const o of (openOrders()[c] || [])) {
+      if (!o.delivery) continue;
+      const d = o.delivery < start ? start : o.delivery;
+      if (daysBetween(start, d) > days) continue;
+      deliveries.push({ ...o, at: d, to: o.plant || prod, moved: false });
+    }
+  }
+  deliveries.sort((a, b) => a.at.localeCompare(b.at) || b.qty - a.qty);
+
+  // Walk both plants forward. `routes` maps an order key to the plant it is
+  // sent to, so the same walk serves the before and after pictures.
+  const key = o => o.po + '|' + o.item + '|' + o.code;
+  const run = routes => {
+    const level = { [prod]: [], [wh]: [] };
+    let qp = scopeStockFor('__all__', prod), qw = scopeStockFor('__all__', wh);
+    const peak = { [prod]: qp, [wh]: qw };
+    for (let i = 0; i < dates.length; i++) {
+      const d = dates[i];
+      if (i > 0 && consumesOn(d)) qp = Math.max(0, qp - rate);
+      for (const o of deliveries) {
+        if (o.at !== d) continue;
+        const to = routes ? (routes[key(o)] || o.to) : o.to;
+        if (to === wh) qw += o.qty; else qp += o.qty;
+      }
+      peak[prod] = Math.max(peak[prod], qp);
+      peak[wh] = Math.max(peak[wh], qw);
+      level[prod].push(qp);
+      level[wh].push(qw);
+    }
+    return { level, peak };
+  };
+
+  const before = run(null);
+
+  // Redirect the latest-arriving deliveries first: the ones with the most time
+  // left before they ship are the ones a supplier can still be told about.
+  const routes = {};
+  const moves = [];
+  const capProd = capOf(prod), capWh = capOf(wh);
+  let guard = 0;
+  while (guard++ < 200) {
+    const now = run(routes);
+    const overIdx = now.level[prod].findIndex(v => v > capProd);
+    if (overIdx < 0 || !capProd) break;
+    const by = dates[overIdx];
+    // candidates: still routed to the production plant, landing on or before
+    // the day it overflows, and the warehouse has room for them
+    const cand = deliveries
+      .filter(o => (routes[key(o)] || o.to) === prod && o.at <= by)
+      .sort((a, b) => b.at.localeCompare(a.at) || b.qty - a.qty);
+    let placed = false;
+    for (const o of cand) {
+      if (capWh && now.level[wh][overIdx] + o.qty > capWh) continue;
+      routes[key(o)] = wh;
+      moves.push({ ...o, from: prod, to: wh, over: now.level[prod][overIdx], by });
+      placed = true;
+      break;
+    }
+    if (!placed) break;      // nothing left that helps without overfilling the other side
+  }
+
+  const after = run(routes);
+  const overBefore = before.level[prod].filter(v => v > capProd).length;
+  const overAfter = after.level[prod].filter(v => v > capProd).length;
+  const whOver = after.level[wh].filter(v => capWh && v > capWh).length;
+
+  return { start, dates, days, rate, deliveries, moves, routes, before, after,
+           prod, wh, capProd, capWh, overBefore, overAfter, whOver,
+           unresolved: overAfter > 0 };
+}
+
+function renderBalance() {
+  const prod = PLANT_PROD(), wh = PLANT_WH();
+
+  // ── capacity controls, one row per plant ──
+  const caps = document.getElementById('capControls');
+  if (!caps.dataset.built) {
+    caps.innerHTML = [prod, wh].map(pl =>
+      '<label class="fld">' + esc(pl) + ' target (t)<input type="number" min="0" step="50" data-target="' + esc(pl) + '" style="width:120px"></label>' +
+      '<label class="fld">' + esc(pl) + ' capacity (t)<input type="number" min="0" step="50" data-cap="' + esc(pl) + '" style="width:130px"></label>'
+    ).join('') +
+    '<label class="fld">Look ahead (days)<input type="number" min="7" step="1" id="balDays" style="width:130px"></label>';
+    caps.querySelectorAll('input[data-cap]').forEach(i => i.onchange = () => {
+      state.settings.capacity = { ...(state.settings.capacity || {}) };
+      state.settings.capacity[i.dataset.cap] = Number(i.value) || 0;
+      saveState(); renderBalance();
+    });
+    caps.querySelectorAll('input[data-target]').forEach(i => i.onchange = () => {
+      state.settings.target = { ...(state.settings.target || {}) };
+      state.settings.target[i.dataset.target] = Number(i.value) || 0;
+      saveState(); renderBalance();
+    });
+    caps.querySelector('#balDays').onchange = e => {
+      state.settings.balanceDays = Number(e.target.value) || 45; saveState(); renderBalance();
+    };
+    caps.dataset.built = '1';
+  }
+  [prod, wh].forEach(pl => {
+    caps.querySelector('input[data-cap="' + pl + '"]').value = (state.settings.capacity || {})[pl] || '';
+    caps.querySelector('input[data-target="' + pl + '"]').value = (state.settings.target || {})[pl] || '';
+  });
+  caps.querySelector('#balDays').value = state.settings.balanceDays || 45;
+
+  const b = buildBalancePlan();
+  const t = kg => fmt(kg / 1000, 1);
+
+  document.getElementById('balStats').innerHTML = [
+    tile(prod + ' now', t(scopeStockFor('__all__', prod)) + '<span class="stat-unit">t</span>',
+         'capacity ' + t(b.capProd) + ' t',
+         scopeStockFor('__all__', prod) > b.capProd ? 'danger' : ''),
+    tile(wh + ' now', t(scopeStockFor('__all__', wh)) + '<span class="stat-unit">t</span>',
+         'capacity ' + t(b.capWh) + ' t',
+         scopeStockFor('__all__', wh) > b.capWh ? 'danger' : ''),
+    tile(prod + ' peak, as things stand', t(b.before.peak[prod]) + '<span class="stat-unit">t</span>',
+         b.overBefore ? b.overBefore + ' day(s) over capacity' : 'stays within capacity',
+         b.overBefore ? 'danger' : 'good'),
+    tile('Deliveries to redirect', fmt(b.moves.length, 0),
+         b.moves.length ? t(b.moves.reduce((s, m) => s + m.qty, 0)) + ' t sent to ' + wh + ' instead' : 'none needed',
+         b.moves.length ? 'accent' : ''),
+    tile(prod + ' peak, after the moves', t(b.after.peak[prod]) + '<span class="stat-unit">t</span>',
+         b.overAfter ? 'still ' + b.overAfter + ' day(s) over' : 'within capacity',
+         b.overAfter ? 'danger' : 'good'),
+  ].join('');
+
+  // ── the actions ──
+  const host = document.getElementById('balActions');
+  if (!b.capProd) {
+    host.innerHTML = '<div class="banner warn">Set a capacity for ' + esc(prod) + ' above and the moves will be worked out.</div>';
+  } else if (!b.moves.length) {
+    host.innerHTML = '<div class="banner ok">Nothing to move. ' + esc(prod) + ' peaks at <strong>' + t(b.before.peak[prod]) +
+      ' t</strong> against a capacity of ' + t(b.capProd) + ' t over the next ' + b.days + ' days.</div>';
+  } else {
+    host.innerHTML =
+      (b.unresolved
+        ? '<div class="banner err">' + esc(prod) + ' is still over capacity on ' + b.overAfter +
+          ' day(s) after every delivery that could be redirected has been. ' +
+          (b.whOver ? esc(wh) + ' has no room for more. ' : '') +
+          'Stock already on site has to move, or an order has to be pushed back.</div>'
+        : '<div class="banner ok">These moves keep ' + esc(prod) + ' inside capacity for the whole window.</div>') +
+      '<div class="table-wrap"><table><thead><tr>' +
+      '<th>Arrives</th><th>Order</th><th>Material</th><th class="num">Quantity</th><th>Send to</th><th>Why</th>' +
+      '</tr></thead><tbody>' + b.moves.map(m =>
+        '<tr><td class="mono">' + esc(m.at) + '</td>' +
+        '<td class="mono">' + esc(m.po) + (m.item ? '<span class="muted">/' + esc(m.item) + '</span>' : '') + '</td>' +
+        '<td><span class="mono">' + esc(m.code) + '</span> <span class="muted">' + esc((state.materials[m.code] || {}).desc || '') + '</span></td>' +
+        '<td class="num">' + fmt(m.qty, 0) + '</td>' +
+        '<td><span class="pill ' + (m.to === PLANT_WH() ? 'si10' : 'si11') + '">' + esc(m.from) + ' → ' + esc(m.to) + '</span></td>' +
+        '<td class="small">' + esc(m.from) + ' would reach ' + t(m.over) + ' t on ' + esc(m.by) + '</td></tr>'
+      ).join('') + '</tbody></table></div>' +
+      '<div class="small" style="margin-top:8px">Redirecting a delivery costs one journey; moving the same paper after it has landed costs two. ' +
+      'The latest-arriving deliveries are chosen first, since those are the ones a supplier can still be told about.</div>';
+  }
+
+  // ── chart ──
+  const opt = chartBase();
+  opt.scales.y.beginAtZero = false;
+  opt.scales.x.ticks.callback = (v, i) => i % Math.ceil(b.dates.length / 14) === 0 ? shortDate(b.dates[i]) : '';
+  opt.plugins.tooltip.callbacks = {
+    title: items => b.dates[items[0].dataIndex],
+    label: ctx => ctx.dataset.label + ': ' + fmt(ctx.parsed.y / 1000, 1) + ' t',
+  };
+  const flat = (label, v, color, dash) => ({
+    label, data: b.dates.map(() => v), borderColor: color, borderWidth: 1,
+    borderDash: dash, pointRadius: 0, fill: false, tension: 0,
+  });
+  drawChart('balChart', {
+    type: 'line',
+    data: {
+      labels: b.dates,
+      datasets: [
+        lineDs(prod + ' after the moves', b.after.level[prod], cssVar('--c-si11'), false, true),
+        lineDs(prod + ' as things stand', b.before.level[prod], cssVar('--c-si11'), true),
+        lineDs(wh + ' after the moves', b.after.level[wh], cssVar('--c-si10'), false),
+        lineDs(wh + ' as things stand', b.before.level[wh], cssVar('--c-si10'), true),
+        flat('Capacity', b.capProd, cssVar('--crit'), [4, 4]),
+        flat('Target', targetOf(prod), cssVar('--ok'), [2, 3]),
+      ],
+    },
+    options: opt,
+  });
+  document.getElementById('balChartTitle').textContent =
+    'Projected level by plant · next ' + b.days + ' days at ' + fmt(b.rate, 0) + ' kg / working day';
+
+  // ── the deliveries the window contains ──
+  const oh = document.getElementById('balOrders');
+  if (!b.deliveries.length) {
+    oh.innerHTML = '<div class="small">No dated deliveries in the next ' + b.days + ' days.</div>';
+  } else {
+    const moved = new Set(b.moves.map(m => m.po + '|' + m.item + '|' + m.code));
+    oh.innerHTML = '<div class="table-wrap"><table><thead><tr>' +
+      '<th>Arrives</th><th>Order</th><th>Material</th><th class="num">Quantity</th><th>Routed to</th><th>Supplier</th>' +
+      '</tr></thead><tbody>' + b.deliveries.slice(0, 60).map(o => {
+        const isMoved = moved.has(o.po + '|' + o.item + '|' + o.code);
+        return '<tr' + (isMoved ? ' class="risk-warn"' : '') + '><td class="mono">' + esc(o.at) + '</td>' +
+          '<td class="mono">' + esc(o.po) + (o.item ? '<span class="muted">/' + esc(o.item) + '</span>' : '') + '</td>' +
+          '<td>' + esc(materialLabel(o.code)) + '</td>' +
+          '<td class="num">' + fmt(o.qty, 0) + '</td>' +
+          '<td>' + (isMoved
+            ? '<span class="pill warn">' + esc(o.to) + ' → ' + esc(b.wh) + '</span>'
+            : '<span class="pill ' + (o.to === PLANT_WH() ? 'si10' : 'si11') + '">' + esc(o.to) + '</span>') + '</td>' +
+          '<td class="muted">' + esc(o.vendor || '—') + '</td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<div class="small" style="margin-top:8px">' + b.deliveries.length + ' dated delivery line(s) in the window; ' +
+      'the highlighted rows are the ones proposed for redirection.</div>';
+  }
+}
+
 // ═══════════════════════════════════════════════════════════
 // PAGE: HISTORY — planned against actual
 // ═══════════════════════════════════════════════════════════
@@ -3801,6 +4074,7 @@ function renderPage(page) {
     else if (page === 'forecast') renderForecast();
     else if (page === 'warehouse') renderWarehouse();
     else if (page === 'planning') renderPlanning();
+    else if (page === 'balance') renderBalance();
     else if (page === 'history') renderHistory();
     else if (page === 'import') renderImportPage();
     else if (page === 'settings') renderSettings();
