@@ -778,7 +778,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-08-26 · 21';
+const BUILD = '2026-08-27 · 22';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -814,10 +814,14 @@ const DEFAULTS = {
   lotSize: 23000,
   // Plant capacity in tonnes. A warehouse fills by weight, so this is not
   // expressed in days of cover like the ordering policy is.
-  capacity: { SI11: 2600, SI10: 2600 },
-  target:   { SI11: 2100, SI10: 2100 },
+  capacity: { SI11: 2600, SI10: 1650 },
+  target:   { SI11: 2100, SI10: 1320 },
   balanceDays: 45,
 };
+
+function freshSettings() {
+  return { ...DEFAULTS, capacity: { ...DEFAULTS.capacity }, target: { ...DEFAULTS.target } };
+}
 
 let state = {
   version: 1,
@@ -828,7 +832,8 @@ let state = {
   ordersDate: null,
   imports: [],     // { id, ts, kind, filename, hash, rows, added, skipped }
   mappings: { stock: {}, movements: {}, orders: {} },
-  settings: { ...DEFAULTS },
+  settings: freshSettings(),
+  migrations: {},  // one-off corrections already applied to this database
   plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {} },
   plans: {},      // 'YYYY-MM' -> the plan as it stood when saved
   actuals: {},    // 'YYYY-MM' -> { sqm } board actually produced
@@ -882,6 +887,18 @@ function saveState(immediate) {
   if (immediate) run(); else saveTimer = setTimeout(run, 350);
 }
 
+// SI10's capacity started as a placeholder copied from SI11 while the real
+// figure was unknown. It is 1650 t. Correct that one stored value on the
+// machines that saved the placeholder, once, then leave the setting alone.
+function migrateSettings(s, done) {
+  if (!done.si10cap) {
+    if (Number(s.capacity.SI10) === 2600) s.capacity.SI10 = 1650;
+    if (Number(s.target.SI10)   === 2100) s.target.SI10   = 1320;
+    done.si10cap = 1;
+  }
+  return s;
+}
+
 function loadState() {
   return new Promise(resolve => {
     openDB().then(d => {
@@ -892,6 +909,12 @@ function loadState() {
         if (r) {
           state = { ...state, ...r };
           state.settings = { ...DEFAULTS, ...(r.settings || {}) };
+          // Per-plant maps are nested, so a shallow spread would let a saved
+          // copy hide a plant the defaults know about. Rebuild them properly.
+          state.settings.capacity = { ...DEFAULTS.capacity, ...(state.settings.capacity || {}) };
+          state.settings.target   = { ...DEFAULTS.target,   ...(state.settings.target   || {}) };
+          state.migrations = { ...(r.migrations || {}) };
+          migrateSettings(state.settings, state.migrations);
           state.mappings = { stock: {}, movements: {}, orders: {}, ...(r.mappings || {}) };
           state.plan = { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {}, ...(r.plan || {}) };
           state.plans = r.plans || {};
@@ -954,6 +977,7 @@ function mergeStates(local, remote) {
     settings: newer.settings || older.settings || {},
     mappings: newer.mappings || older.mappings || {},
     plan: newer.plan || older.plan || {},
+    migrations: { ...(older.migrations || {}), ...(newer.migrations || {}) },
     plans: { ...(older.plans || {}), ...(newer.plans || {}) },
     actuals: { ...(older.actuals || {}), ...(newer.actuals || {}) },
     materials: { ...(older.materials || {}), ...(newer.materials || {}) },
@@ -4052,7 +4076,7 @@ function wireSettings() {
     if (synced) Dropbox.disconnect();
     state = { version: 1, materials: {}, stock: {}, movements: [], orders: [], ordersDate: null,
               imports: [], mappings: { stock: {}, movements: {}, orders: {} },
-              settings: { ...DEFAULTS }, plans: {}, actuals: {},
+              settings: freshSettings(), migrations: { si10cap: 1 }, plans: {}, actuals: {},
               plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {} } };
     invalidate(); saveState(true); boot();
   };
