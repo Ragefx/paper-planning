@@ -119,17 +119,39 @@ only, the all-time average uses both.
   is what matters when a plant is already full and shipping stock back to the
   warehouse.
 
-- **Stock Balancing** — which deliveries to send to the other plant so neither
-  runs out of room. Capacity here is **tonnes**, not days of cover: a warehouse
-  fills up by weight whatever the line is consuming. Both plants are projected
-  forward from current stock, their dated deliveries and the production plant's
-  usage; wherever the production plant is set to cross its capacity, the
-  latest-arriving delivery still routed there is switched to the warehouse —
-  latest first, because those are the ones a supplier can still be told about,
-  and redirecting a delivery costs one journey where moving the same paper
-  after it lands costs two. Nothing is moved that would push the receiving
-  plant past its own capacity, and if redirection alone cannot solve it the tab
-  says so rather than pretending.
+- **Stock Balancing** — what to move, where to, and when, so neither plant runs
+  out of room. Capacity here is **tonnes**, not days of cover: a warehouse fills
+  up by weight whatever the line is consuming. Both plants are walked forward
+  day by day **per material**, because a transfer instruction has to name what
+  goes on the lorry; aggregate tonnes can say a plant is too full but not which
+  reels to shift, nor whether the warehouse even holds the grade the line is
+  about to run out of.
+
+  Paper moves **both ways**, and the walk models that whether or not anything is
+  being proposed:
+
+  - **Back to the production plant**, because paper stored at the warehouse has
+    to return to be run. These are not suggestions — it is what happens today,
+    and leaving them out is what once made the warehouse fill up for ever and
+    the production plant look shorter than it is. A full lorry comes when there
+    is room for one; when the plant is already full, only what the line needs
+    that day.
+  - **Out to the warehouse**, when the production plant is over capacity and
+    there is no delivery left to redirect. The grade with the deepest cover goes
+    first, and nothing leaves unless the minimum days of it stay on site — so
+    nothing is sent away only to be fetched back.
+
+  Redirecting a delivery that has not shipped is always tried first: it costs
+  one journey where moving the same paper after it lands costs two, and the
+  latest-arriving deliveries go first because those are the ones a supplier can
+  still be told about. Everything travelling the same way on the same day rides
+  together, so a day of shifting reads as one instruction with a load list.
+
+  Nothing is ever moved that would push the receiving plant past its own
+  capacity. When moving cannot solve it, the tab says so with the number that
+  matters: the two plants together against their combined capacity, and how many
+  tonnes have to be pushed back. Moving paper between plants cannot change how
+  much of it there is.
 
 - **History** — every month's consumption read from its 251/252 postings,
   whether or not a plan was saved for it. Save a plan on the planning tab and
