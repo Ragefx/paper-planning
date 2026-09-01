@@ -188,6 +188,80 @@ body {
 }
 .card-title::before { content: ''; width: 3px; height: 11px; border-radius: 2px; background: var(--border-light); flex: none; }
 
+
+/* ═══ OVERVIEW ═══════════════════════════════════════════════
+   Two plants side by side. The building is a meter: its hall
+   fills linearly with how much of the plant's capacity is used,
+   and the exact tonnage sits beside it so the shape never has to
+   be read as a quantity on its own. */
+.plants { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+.plant {
+  background: var(--pane); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 20px 22px 18px; position: relative; overflow: hidden;
+}
+.plant::before {
+  content: ''; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--bar);
+}
+.plant-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
+.plant-name { font-family: var(--font-mono); font-size: 15px; font-weight: 600; letter-spacing: .06em; color: var(--text-0); }
+.plant-role { font-size: 11.5px; color: var(--text-2); }
+.plant-body { display: flex; align-items: center; gap: 22px; margin-top: 14px; }
+.plant-fig { flex: none; width: 152px; }
+.plant-fig svg { display: block; width: 100%; height: auto; }
+.plant-read { min-width: 0; flex: 1; }
+.plant-tons { font-size: 34px; font-weight: 600; letter-spacing: -.02em; color: var(--text-0); line-height: 1.05; }
+.plant-tons span { font-size: 14px; font-weight: 400; color: var(--text-2); margin-left: 3px; }
+.plant-pct { font-family: var(--font-mono); font-size: 12px; font-weight: 500; margin-top: 5px; color: var(--ink); }
+.plant-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px 12px; margin-top: 15px;
+  border-top: 1px solid var(--rule); padding-top: 12px; }
+.plant-grid dt { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-2);
+  font-family: var(--font-mono); }
+.plant-grid dd { margin: 2px 0 0; font-size: 15px; font-weight: 500; color: var(--text-0); }
+.plant-grid dd small { font-size: 11px; font-weight: 400; color: var(--text-2); }
+.plant-note { margin-top: 12px; font-size: 11.5px; line-height: 1.5; color: var(--text-1);
+  display: flex; align-items: flex-start; gap: 7px; }
+.plant-note b { font-weight: 600; }
+.plant-note i { font-style: normal; flex: none; }
+
+.site-row { display: flex; align-items: center; gap: 30px; flex-wrap: wrap; }
+.hero { flex: none; }
+.hero-value { font-size: 52px; font-weight: 600; letter-spacing: -.025em; color: var(--text-0); line-height: 1; }
+.hero-value span { font-size: 19px; font-weight: 400; color: var(--text-2); margin-left: 4px; }
+.hero-note { font-size: 11.5px; color: var(--text-2); margin-top: 7px; }
+.site-stats { flex: 1; min-width: 260px; display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 16px 20px; }
+.site-stats dt { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-2); font-family: var(--font-mono); }
+.site-stats dd { margin: 3px 0 0; font-size: 19px; font-weight: 500; color: var(--text-0); }
+.site-stats dd small { display: block; font-size: 11px; font-weight: 400; color: var(--text-2); margin-top: 2px; }
+
+.ov-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+.ov-list { display: flex; flex-direction: column; }
+.ov-item { display: flex; align-items: center; gap: 11px; padding: 9px 0; border-bottom: 1px solid var(--rule); }
+.ov-item:last-child { border-bottom: 0; }
+.ov-item.clickable { cursor: pointer; }
+.ov-item.clickable:hover { background: var(--pane2); }
+.ov-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.ov-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ov-code { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-0); }
+.ov-desc { font-size: 11px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-val { text-align: right; flex: none; font-size: 13px; font-weight: 600; }
+.ov-val small { display: block; font-size: 10.5px; font-weight: 400; color: var(--text-2); }
+.ov-todo { display: flex; align-items: flex-start; gap: 11px; padding: 11px 0; border-bottom: 1px solid var(--rule); }
+.ov-todo:last-child { border-bottom: 0; }
+.ov-todo .ov-dot { margin-top: 5px; }
+.ov-todo-t { font-size: 13px; color: var(--text-0); font-weight: 500; }
+.ov-todo-s { font-size: 11.5px; color: var(--text-1); margin-top: 3px; line-height: 1.5; }
+.ov-todo a { color: var(--amber); text-decoration: none; font-weight: 500; }
+.ov-todo a:hover { text-decoration: underline; }
+
+@media (max-width: 1080px) {
+  .plants, .ov-cols { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .plant-body { flex-direction: column; align-items: flex-start; gap: 14px; }
+  .plant-fig { width: 104px; }
+  .hero-value { font-size: 40px; }
+}
+
 /* ═══ CONTROLS ═══ */
 .controls { display: flex; gap: 9px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 15px; }
 label.fld {
@@ -378,6 +452,15 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
   .compact-hide { display: none; }
   .modal { max-height: 92vh; }
 }
+
+/* Below this the tab strip and the status chips fight for the same row, and
+   the tabs lose. Give the chips their own line rather than clipping either. */
+@media (max-width: 820px) {
+  .side-foot {
+    width: 100%; order: 3; justify-content: flex-end;
+    border-top: 1px solid var(--rule); padding-top: 8px; margin-top: 2px;
+  }
+}
 </style>
 </head>
 <body>
@@ -386,7 +469,8 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 <aside class="side">
   <div class="brand" id="logo"><i></i>PAPER<span>·</span>PLAN</div>
   <nav class="tabs">
-    <button class="tab active" data-page="materials"><i>▤</i>All Materials</button>
+    <button class="tab active" data-page="overview"><i>◧</i>Overview</button>
+    <button class="tab" data-page="materials"><i>▤</i>All Materials</button>
     <button class="tab" data-page="forecast"><i>◈</i>Material Forecast</button>
     <button class="tab" data-page="warehouse"><i>▦</i>Warehouse Movement</button>
     <button class="tab" data-page="planning"><i>◉</i>Production Planning</button>
@@ -406,8 +490,37 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 <main class="main">
 
 
+<!-- ══════════════ OVERVIEW ══════════════ -->
+<div class="page active" id="page-overview">
+  <div class="page-head">
+    <div class="page-title">Overview</div>
+    <div class="page-sub" id="ovSub"></div>
+  </div>
+
+  <div class="plants" id="ovPlants"></div>
+
+  <div class="card">
+    <div class="card-title">Across the site</div>
+    <div class="site-row">
+      <div class="hero" id="ovHero"></div>
+      <div class="site-stats" id="ovSiteStats"></div>
+    </div>
+  </div>
+
+  <div class="ov-cols">
+    <div class="card">
+      <div class="card-title">Running out first</div>
+      <div id="ovRisk"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">What needs doing</div>
+      <div id="ovTodo"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════════ ALL MATERIALS ══════════════ -->
-<div class="page active" id="page-materials">
+<div class="page" id="page-materials">
   <div class="page-head">
     <div class="page-title">All Materials</div>
     <div class="page-sub" id="materialsSub"></div>
@@ -778,7 +891,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-08-27 · 23';
+const BUILD = '2026-08-28 · 24';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -840,7 +953,7 @@ let state = {
   actuals: {},    // 'YYYY-MM' -> { sqm } board actually produced
 };
 
-let currentPage = 'materials';
+let currentPage = 'overview';
 let staged = [];               // files awaiting commit
 const charts = {};
 let matSort = { field: 'days', dir: 'asc' };
@@ -3249,6 +3362,283 @@ function renderSplitEditor() {
 
 
 // ═══════════════════════════════════════════════════════════
+// PAGE: OVERVIEW
+// ═══════════════════════════════════════════════════════════
+// The two plants as the thing you look at first. Each building is a meter:
+// the hall fills linearly with how much of that plant's capacity is in use,
+// and the tonnage is printed beside it, so the drawing never has to be read
+// as a quantity on its own. Colour is the reserved status palette — a plant
+// over capacity is critical, over target is a warning — never a series hue.
+
+function fillLevel(qty, cap, target) {
+  const pct = cap > 0 ? qty / cap * 100 : 0;
+  const lvl = !cap ? 'none'
+            : qty > cap ? 'crit'
+            : (target && qty > target) ? 'warn'
+            : 'ok';
+  return { pct: Math.max(0, Math.min(100, pct)), raw: pct, lvl };
+}
+const STATUS_MARK = { crit: 'var(--crit)', warn: 'var(--warn)', ok: 'var(--ok)', none: 'var(--text-2)' };
+const STATUS_INK  = { crit: 'var(--crit-ink)', warn: 'var(--warn-ink)', ok: 'var(--ok-ink)', none: 'var(--text-2)' };
+
+// A works with a saw-tooth roof and a chimney. The whole silhouette is the
+// track and it fills bottom-up, so a plant at 97% reads as nearly full at a
+// glance. Height is the encoding — the roof narrows, so area is not linear
+// with it, which is why the exact percentage and tonnage sit beside the
+// drawing rather than being left to it.
+const WORKS = 'M6 70 V38 l14 -14 v14 l14 -14 v14 l14 -14 v14 l14 -14 v14 l14 -14 v14 h20 V70 Z';
+const WORKS_TOP = 24, WORKS_BASE = 70;
+
+let worksSeq = 0;
+function plantSvg(pct, mark) {
+  const span = WORKS_BASE - WORKS_TOP;
+  const fillH = span * Math.max(0, Math.min(100, pct)) / 100;
+  const id = 'works' + (++worksSeq);
+  return '<svg viewBox="0 0 120 78" role="img" aria-label="' + fmt(pct, 0) + '% of capacity">' +
+    '<defs><clipPath id="' + id + '"><path d="' + WORKS + '"/></clipPath></defs>' +
+    // the unfilled track: one step off the surface, same shape
+    '<path d="' + WORKS + '" fill="var(--pane3)"/>' +
+    // the fill: a plain rectangle clipped to the works, rising in a straight line
+    '<rect x="0" y="' + (WORKS_BASE - fillH).toFixed(2) + '" width="120" height="' + (fillH + 0.5).toFixed(2) + '" ' +
+      'fill="' + mark + '" clip-path="url(#' + id + ')"/>' +
+    // chimney, then the outline over the top of everything
+    '<path d="M84 38 V12 h9 v26" fill="var(--pane3)" stroke="var(--text-2)" stroke-width="1.6" stroke-linejoin="round"/>' +
+    '<path d="' + WORKS + '" fill="none" stroke="var(--text-2)" stroke-width="1.6" stroke-linejoin="round"/>' +
+    '<line x1="2" y1="70" x2="118" y2="70" stroke="var(--text-2)" stroke-width="1.6" stroke-linecap="round"/>' +
+    '</svg>';
+}
+
+function overviewFacts() {
+  const prod = PLANT_PROD(), wh = PLANT_WH();
+  const rows = materialRows('30');
+  const bal = state.orders.length || allMaterialCodes().length ? safely(buildBalancePlan) : null;
+
+  const per = {};
+  for (const pl of [prod, wh]) {
+    const qty = scopeStockFor('__all__', pl);
+    const cap = capOf(pl), target = targetOf(pl);
+    const known = !!latestSnapDate(pl);
+    // An empty plant is unknown, not healthy. Painting a plant green because
+    // no stock file has been read yet would be the worst thing this page does.
+    const fill = known ? fillLevel(qty, cap, target) : { pct: 0, raw: 0, lvl: 'none' };
+    per[pl] = { plant: pl, qty, cap, target, known, ...fill,
+                headroom: known && cap ? cap - qty : null,
+                peak: bal ? bal.after.peak[pl] : null,
+                over: bal && cap ? bal.after.level[pl].filter(v => v > cap).length : null };
+  }
+  return { prod, wh, rows, bal, per };
+}
+
+// buildBalancePlan walks the whole catalogue; a page that leads the app should
+// never fail to draw because one of its panels threw.
+function safely(fn) { try { return fn(); } catch (e) { console.error('overview:', e); return null; } }
+
+function renderOverview() {
+  const f = overviewFacts();
+  const { prod, wh, rows, bal, per } = f;
+  const t = kg => fmt(kg / 1000, 1);
+  const snap = latestSnapDate(prod) || latestSnapDate(wh);
+
+  document.getElementById('ovSub').textContent = snap
+    ? 'Stock as of ' + snap + (state.ordersDate ? ' · orders as of ' + state.ordersDate : '')
+    : 'No data imported yet';
+
+  // ── the two plants ──
+  const roleOf = pl => pl === prod ? 'Production · the line runs here' : 'Warehouse · storage only';
+  document.getElementById('ovPlants').innerHTML = [prod, wh].map(pl => {
+    const p = per[pl];
+    const mark = STATUS_MARK[p.lvl], ink = STATUS_INK[p.lvl];
+    const note = !p.known
+      ? { i: '·', text: 'No stock file has been read for ' + pl + ' yet.' }
+      : !p.cap
+      ? { i: '·', text: 'No capacity set for ' + pl + '. Set one on Stock Balancing and this fills in.' }
+      : p.over
+        ? { i: '▲', text: '<b>' + p.over + ' day(s)</b> over capacity in the next ' + bal.days +
+                          ', peaking at <b>' + t(p.peak) + ' t</b>.' }
+        : p.peak !== null
+          ? { i: '✓', text: 'Stays inside capacity for the next ' + bal.days + ' days, peaking at <b>' +
+                            t(p.peak) + ' t</b>.' }
+          : { i: '·', text: 'Import open orders to project this forward.' };
+    return '<div class="plant" style="--bar:' + mark + ';--ink:' + ink + '">' +
+      '<div class="plant-head"><span class="plant-name">' + esc(pl) + '</span>' +
+        '<span class="plant-role">' + esc(roleOf(pl)) + '</span></div>' +
+      '<div class="plant-body">' +
+        '<div class="plant-fig">' + plantSvg(p.pct, mark) + '</div>' +
+        '<div class="plant-read">' +
+          '<div class="plant-tons">' + t(p.qty) + '<span>t</span></div>' +
+          '<div class="plant-pct">' + (!p.known ? 'nothing imported' :
+            p.cap ? fmt(p.raw, 0) + '% of capacity' : 'no capacity set') + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<dl class="plant-grid">' +
+        '<div><dt>Capacity</dt><dd>' + (p.cap ? t(p.cap) + ' <small>t</small>' : '—') + '</dd></div>' +
+        '<div><dt>Target</dt><dd>' + (p.target ? t(p.target) + ' <small>t</small>' : '—') + '</dd></div>' +
+        '<div><dt>Headroom</dt><dd>' + (p.headroom === null ? '—' :
+          (p.headroom < 0 ? '<span style="color:var(--crit-ink)">' + t(p.headroom) + '</span>' : t(p.headroom)) +
+          ' <small>t</small>') + '</dd></div>' +
+      '</dl>' +
+      '<div class="plant-note"><i style="color:' + ink + '">' + note.i + '</i><span>' + note.text + '</span></div>' +
+    '</div>';
+  }).join('');
+
+  // ── the site as a whole ──
+  const totalStock = rows.reduce((s, r) => s + r.total, 0);
+  const totalUsage = rows.reduce((s, r) => s + r.usage, 0);
+  const totalOrder = rows.reduce((s, r) => s + r.ordered, 0);
+  const siteCap = capOf(prod) + capOf(wh);
+  const cover = totalUsage > 0 ? totalStock / totalUsage : null;
+  const unitWord = state.settings.usageDays === 'all' ? 'day' : 'working day';
+
+  document.getElementById('ovHero').innerHTML =
+    '<div class="hero-value">' + t(totalStock) + '<span>t on site</span></div>' +
+    '<div class="hero-note">' + (siteCap ? fmt(totalStock / siteCap * 100, 0) + '% of ' + t(siteCap) +
+      ' t across both plants' : 'set plant capacities to see this against a ceiling') + '</div>';
+
+  document.getElementById('ovSiteStats').innerHTML =
+    '<div><dt>Used per day</dt><dd>' + t(totalUsage) + ' <small>t / ' + unitWord + '</small></dd></div>' +
+    '<div><dt>Cover</dt><dd>' + (cover === null ? '—' : fmt(cover, 0)) +
+      ' <small>' + unitWord + 's at that rate</small></dd></div>' +
+    '<div><dt>On order</dt><dd>' + t(totalOrder) + ' <small>t · ' + state.orders.length + ' line(s)' +
+      (unconfirmedCount() ? ', ' + unconfirmedCount() + ' undated' : '') + '</small></dd></div>' +
+    '<div><dt>Materials</dt><dd>' + fmt(rows.filter(r => r.total !== 0 || r.ordered !== 0).length, 0) +
+      ' <small>in stock or on order</small></dd></div>';
+
+  renderOverviewRisk(rows);
+  renderOverviewTodo(f);
+}
+
+function renderOverviewRisk(rows) {
+  const host = document.getElementById('ovRisk');
+  if (!rows.length) { host.innerHTML = '<div class="small">Import a stock file and this fills in.</div>'; return; }
+
+  // Always the tightest eight, not only those past a threshold: a card that
+  // empties out the moment nothing is critical stops being worth looking at,
+  // and "what is closest to running out" is the question either way.
+  const ranked = rows.filter(r => !r.noUsage).sort((a, b) => coverRank(a) - coverRank(b));
+  const atRisk = rows.filter(r => ['crit', 'warn'].indexOf(rowRisk(r)) > -1);
+  const crit = atRisk.filter(r => rowRisk(r) === 'crit').length;
+
+  if (!ranked.length) {
+    host.innerHTML = '<div class="small">No material has measured usage yet, so nothing can be projected. ' +
+      'Import a movements file covering a few working days.</div>';
+    return;
+  }
+
+  host.innerHTML =
+    '<div class="small" style="margin-bottom:4px">' +
+      (crit ? '<strong style="color:var(--crit-ink)">' + crit + '</strong> inside ' + state.settings.critDays + ' day(s)'
+            : 'None inside ' + state.settings.critDays + ' day(s)') +
+      ' · ' + (atRisk.length ? '<strong>' + atRisk.length + '</strong>' : 'none') +
+      ' inside ' + state.settings.lowDays + ' · ' + ranked.length + ' with measured usage</div>' +
+    '<div class="ov-list">' + ranked.slice(0, 8).map(r => {
+      const lvl = rowRisk(r);
+      return '<div class="ov-item clickable" data-code="' + esc(r.code) + '" title="Open the forecast for this material">' +
+        '<span class="ov-dot" style="background:' + STATUS_MARK[lvl] + '"></span>' +
+        '<span class="ov-main"><span class="ov-code">' + esc(r.code) + '</span>' +
+          '<span class="ov-desc">' + esc(r.desc || '—') + '</span></span>' +
+        '<span class="ov-val" style="color:' + STATUS_INK[lvl] + '">' + fmtCover(r) +
+          '<small>day(s) · ' + fmt(r.total, 0) + ' kg</small></span></div>';
+    }).join('') + '</div>' +
+    '<div class="small" style="margin-top:11px"><a href="#" class="drill" id="ovAllRisk">' +
+      (atRisk.length > 8 ? 'See the other ' + (atRisk.length - 8) + ' at risk' : 'See all materials') + ' →</a></div>';
+
+  host.querySelectorAll('.ov-item[data-code]').forEach(el => el.onclick = () => {
+    go('forecast');
+    const sel = document.getElementById('fcMaterial');
+    sel.value = el.dataset.code;
+    renderForecast();
+  });
+  host.querySelector('#ovAllRisk').onclick = e => {
+    e.preventDefault();
+    go('materials');
+    document.getElementById('matFilter').value = atRisk.length ? 'risk' : 'active';
+    renderMaterials();
+  };
+}
+
+function renderOverviewTodo(f) {
+  const host = document.getElementById('ovTodo');
+  const { prod, wh, bal } = f;
+  const t = kg => fmt(kg / 1000, 1);
+  const items = [];
+
+  if (!state.movements.length || !Object.keys(state.stock).length) {
+    items.push({ lvl: 'warn', title: 'Import today’s files',
+      text: 'Stock, movements and open orders. Everything on every other tab comes from those three.',
+      page: 'import', link: 'Go to Import' });
+  }
+
+  // The age that matters is the latest posting, not when a file was read: a
+  // stock file imported this morning can still carry last week's movements.
+  const age = dataAgeDays();
+  if (age !== null && age >= 3) {
+    items.push({ lvl: age >= 7 ? 'crit' : 'warn',
+      title: 'The newest movement is ' + age + ' days old',
+      text: 'The last 101/251 posting on file is dated ' + lastMovementDate() +
+            ', so usage rates and every projection built on them stop there.',
+      page: 'import', link: 'Import fresh files' });
+  }
+
+  if (bal) {
+    if (bal.combined && bal.combined.over > 0) {
+      items.push({ lvl: 'crit', title: t(bal.combined.over) + ' t more paper than the site can hold',
+        text: 'Both plants together peak at ' + t(bal.combined.peak) + ' t on ' + bal.combined.peakAt +
+              ' against ' + t(bal.combined.cap) + ' t of capacity. Moving it around cannot fix that — an order has to be pushed back.',
+        page: 'balance', link: 'Open Stock Balancing' });
+    } else if (bal.overAfter) {
+      items.push({ lvl: 'warn', title: prod + ' over capacity on ' + bal.overAfter + ' day(s)',
+        text: 'Even after redirecting deliveries and moving what is on site.',
+        page: 'balance', link: 'Open Stock Balancing' });
+    }
+    if (bal.redirects.length) {
+      items.push({ lvl: 'warn', title: bal.redirects.length + ' delivery line(s) to redirect',
+        text: t(bal.redirects.reduce((s, m) => s + m.qty, 0)) + ' t would be better sent straight to ' + wh +
+              '. Redirecting before a lorry leaves costs one journey; moving it afterwards costs two.',
+        page: 'balance', link: 'See which' });
+    }
+    if (bal.transfers.length) {
+      const back = bal.transfers.filter(m => m.kind === 'return');
+      const out  = bal.transfers.filter(m => m.kind === 'push');
+      items.push({ lvl: 'ok', title: bal.loads + ' load(s) to move between the plants',
+        text: (back.length ? t(back.reduce((s, m) => s + m.qty, 0)) + ' t back to ' + prod : '') +
+              (back.length && out.length ? ' · ' : '') +
+              (out.length ? t(out.reduce((s, m) => s + m.qty, 0)) + ' t out to ' + wh : ''),
+        page: 'balance', link: 'See the schedule' });
+    }
+    if (bal.shortKg > 1000) {
+      items.push({ lvl: 'crit', title: t(bal.shortKg) + ' t of production neither plant can cover',
+        text: 'Inside the next ' + bal.days + ' days. That is a shortage to order against.',
+        page: 'planning', link: 'Open Production Planning' });
+    }
+  }
+
+  const undated = unconfirmedCount();
+  if (undated) {
+    items.push({ lvl: 'warn', title: undated + ' order line(s) have no delivery date',
+      text: fmt(unconfirmedQty(), 0) + ' kg counts as on order but sits on no timeline, so every projection ' +
+            'is short by it until a supplier confirms.', page: 'materials', link: 'See the materials' });
+  }
+  const overdueLines = state.orders.filter(o => o.delivery && o.delivery < todayISO()).length;
+  if (overdueLines) {
+    items.push({ lvl: 'warn', title: overdueLines + ' order line(s) are past their delivery date',
+      text: fmt(overdueQty(), 0) + ' kg is assumed to arrive today, which is usually right and occasionally very wrong.',
+      page: 'materials', link: 'See the materials' });
+  }
+
+  if (!items.length) {
+    host.innerHTML = '<div class="banner ok">Nothing needs attention. Both plants are inside capacity, ' +
+      'no material is short, and every open order has a date.</div>';
+    return;
+  }
+  host.innerHTML = items.slice(0, 6).map((it, i) =>
+    '<div class="ov-todo"><span class="ov-dot" style="background:' + STATUS_MARK[it.lvl] + '"></span>' +
+    '<div><div class="ov-todo-t">' + esc(it.title) + '</div>' +
+    '<div class="ov-todo-s">' + it.text + ' <a href="#" data-goto="' + esc(it.page) + '">' +
+    esc(it.link) + ' →</a></div></div></div>').join('');
+  host.querySelectorAll('a[data-goto]').forEach(a => a.onclick = e => { e.preventDefault(); go(a.dataset.goto); });
+}
+
+// ═══════════════════════════════════════════════════════════
 // PAGE: STOCK BALANCING
 // ═══════════════════════════════════════════════════════════
 // A plant fills up by weight, so capacity here is tonnes, not days of cover.
@@ -4272,7 +4662,8 @@ function go(page) {
 
 function renderPage(page) {
   try {
-    if (page === 'materials') renderMaterials();
+    if (page === 'overview') renderOverview();
+    else if (page === 'materials') renderMaterials();
     else if (page === 'forecast') renderForecast();
     else if (page === 'warehouse') renderWarehouse();
     else if (page === 'planning') renderPlanning();

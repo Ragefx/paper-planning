@@ -73,6 +73,17 @@ only, the all-time average uses both.
 
 ## Views
 
+- **Overview** — the landing page. Both plants drawn side by side, each works
+  filling bottom-up with how much of its capacity is in use and coloured by the
+  reserved status palette: green inside target, amber past it, red over
+  capacity, grey when no stock file has been read (an empty plant is unknown,
+  not healthy). Under them the site as a whole, the eight materials closest to
+  running out, and a list of what actually needs doing — stale data, more paper
+  than the site can hold, deliveries to redirect, loads to move, undated order
+  lines — each linking to the tab that deals with it. Every figure on it is the
+  same number the detailed tab shows; the page is a summary, never a second
+  calculation.
+
 - **All Materials** — stock per plant, quantity on order, average daily usage,
   and two different cover figures, sortable, with CSV export.
 
