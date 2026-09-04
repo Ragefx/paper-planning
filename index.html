@@ -921,7 +921,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-01 · 26';
+const BUILD = '2026-09-04 · 27';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -2312,6 +2312,23 @@ function basisNote(basis) {
 
 // How stale the numbers are. Deciding on four-day-old movements should not be
 // something you have to go looking for.
+// What the database actually covers. "46,000 skipped" reads as either a
+// working dedupe or a broken one until you can see the span it produced, so
+// the span is stated outright wherever an import is reported.
+function movementSpan() {
+  const from = firstMovementDate(), to = lastMovementDate();
+  if (!from) return null;
+  const days = daysBetween(from, to) + 1;
+  let workdays = 0;
+  for (let i = 0; i < days; i++) if (isRunDay(addDays(from, i))) workdays++;
+  return { from, to, days, workdays, rows: state.movements.length };
+}
+function spanText(sp) {
+  if (!sp) return 'no movements yet';
+  return fmt(sp.rows, 0) + ' rows · ' + sp.from + ' → ' + sp.to +
+         ' (' + fmt(sp.days, 0) + ' days, ' + fmt(sp.workdays, 0) + ' worked)';
+}
+
 function dataAgeDays() {
   const last = lastMovementDate();
   return last ? daysBetween(last, todayISO()) : null;
@@ -4477,13 +4494,18 @@ function previewCounts(e) {
     if (e.kind === 'movements') {
       const { rows } = extractMovements(e.rows, e.map, state.settings.signMode);
       const known = new Set(state.movements.map(m => m.key));
-      let dup = 0;
+      let dup = 0, fileFrom = null, fileTo = null;
       const fresh = new Set();
       for (const m of rows) {
         const k = movementKey(m);
         if (known.has(k) || fresh.has(k)) dup++; else fresh.add(k);
+        // the range the file covers, which is not the range it will add
+        if (!fileFrom || m.date < fileFrom) fileFrom = m.date;
+        if (!fileTo   || m.date > fileTo)   fileTo   = m.date;
       }
-      return { newRows: fresh.size, text: fresh.size + ' new movement row(s), ' + dup + ' duplicate(s) will be skipped.' };
+      return { newRows: fresh.size,
+               text: fresh.size + ' new movement row(s), ' + dup + ' duplicate(s) will be skipped.' +
+                     (fileFrom ? ' The file itself covers ' + fileFrom + ' → ' + fileTo + '.' : '') };
     }
     if (e.kind === 'stock') {
       const { rows } = extractStock(e.rows, e.map, e.snapDate);
@@ -4558,10 +4580,15 @@ function commit(id) {
   }
 
   state.mappings[e.kind] = { ...e.map };
+  // The rows are in, so the cached first/last dates are stale — drop them
+  // before asking what the database now covers, or the span recorded with
+  // this import is the one from before it.
+  invalidate();
+  const span = e.kind === 'movements' ? movementSpan() : null;
   state.imports.unshift({
     id: e.id, ts: Date.now(), kind: e.kind, filename: e.filename, hash: e.hash,
     rows: e.rows.length, added, skipped, warn, date: e.kind === 'movements' ? null : e.snapDate,
-    undo,
+    span, undo,
   });
   // Undo payloads are only useful for the most recent imports and are much
   // bigger than the log line itself, so older ones are dropped.
@@ -4569,7 +4596,11 @@ function commit(id) {
   if (state.imports.length > 200) state.imports.length = 200;
 
   staged = staged.filter(x => x.id !== id);   // rows dropped here — the file is gone
-  invalidate();
+  if (e.kind === 'movements') {
+    const sp = movementSpan();
+    notify(fmt(added, 0) + ' new row(s), ' + fmt(skipped, 0) + ' already held. History now covers ' +
+           sp.from + ' → ' + sp.to + ' · ' + fmt(sp.rows, 0) + ' rows', added ? 'ok' : 'info');
+  }
   saveState(true);
   renderStaged();
   renderImportPage();
@@ -4634,7 +4665,7 @@ function renderImportPage() {
     if (k === 'stock') {
       extra = PLANTS().map(p => p + ': ' + (latestSnapDate(p) || '—')).join(' · ');
     } else if (k === 'movements') {
-      extra = state.movements.length + ' rows · latest ' + (lastMovementDate() || '—');
+      extra = spanText(movementSpan());
     } else {
       extra = state.orders.length + ' open line(s)' + (state.ordersDate ? ' · as of ' + state.ordersDate : '');
     }
@@ -4653,7 +4684,10 @@ function renderImportPage() {
         '<td><span class="pill info">' + SCHEMA[i.kind].label + '</span></td>' +
         '<td class="desc-cell mono" style="font-size:11px">' + esc(i.filename) + '</td>' +
         '<td class="num muted">' + i.rows + '</td><td class="num">' + i.added + '</td><td class="num muted">' + i.skipped + '</td>' +
-        '<td class="desc-cell small">' + esc((i.warn || []).join(' ')) + '</td>' +
+        '<td class="desc-cell small">' +
+          (i.span ? '<span class="mono" style="font-size:10.5px">' + esc(i.span.from + ' → ' + i.span.to) +
+                    '</span> <span class="muted">· ' + fmt(i.span.rows, 0) + ' rows held</span><br>' : '') +
+          esc((i.warn || []).join(' ')) + '</td>' +
         '<td>' + (undoable && i === undoable ? '<button class="btn danger" id="undoImport">Undo</button>' : '') + '</td></tr>';
     }).join('') + '</tbody></table></div>' +
     '<div class="small" style="margin-top:8px">Only the most recent import can be undone — reversing them out of order could restore an older snapshot over a newer one. Undo history is kept for the last 10 imports.</div>';

@@ -170,6 +170,19 @@ only, the all-time average uses both.
   produced and the real paper weight per square metre falls out, which is how
   the waste allowance should be set rather than guessed.
 
+### What an import actually did
+"46,000 skipped" reads as either a working dedupe or a broken one until you can
+see the span it produced, so the span is stated outright in four places: the
+preview before you commit names **the range the file covers** (which is not the
+range it will add); the toast on commit and the movements card name **what the
+database now holds**, in rows, calendar days and days actually worked; and the
+import log keeps the span each import produced, so the history reads as a
+record rather than a pile of counts.
+
+Note that `skipped` counts duplicates *within* the file as well as against what
+is stored, so a large skip count on a first import is not by itself proof the
+rows were already held — the span is.
+
 ## The work calendar
 Mon–Fri is only most of the answer, so **Settings → Holidays & shutdowns** holds
 the rest. Slovenian work-free days are **computed** rather than listed — Easter
