@@ -852,6 +852,33 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
     <div class="small" style="margin-top:10px">SAP exports normally carry signed quantities (receipts positive, issues negative). Auto-detect trusts those signs when it finds negatives, and otherwise applies the sign implied by the movement type.</div>
   </div>
   <div class="card">
+    <div class="card-title">Holidays &amp; shutdowns</div>
+    <div class="small" style="margin-bottom:12px">
+      Days the line is dark. Slovenian work-free days are worked out for you — Easter moves, so they are
+      computed rather than listed — and you can add your own (a collective shutdown, an extra closure) or
+      mark a holiday as worked. Everything that counts working days reads this: usage rates, every
+      projection, the stock-balancing walk and the planned production days.
+    </div>
+    <div class="row" style="margin-bottom:12px">
+      <label class="fld">Year
+        <select id="calYear" style="width:110px"></select>
+      </label>
+      <div class="spacer"></div>
+      <div class="small" id="calSummary" style="text-align:right"></div>
+    </div>
+    <div id="calStatutory"></div>
+    <h5 class="sec" style="margin-top:18px">Days you have added</h5>
+    <div id="calManual"></div>
+    <div class="row" style="margin-top:12px;align-items:flex-end">
+      <label class="fld">From <input type="date" id="calFrom" style="width:150px"></label>
+      <label class="fld">To <span class="muted">(optional)</span> <input type="date" id="calTo" style="width:150px"></label>
+      <label class="fld">Reason <input type="text" id="calWhy" placeholder="kolektivni dopust" style="width:220px"></label>
+      <button class="btn" id="calAdd">Add closure</button>
+    </div>
+    <div class="small" style="margin-top:8px">A range adds every calendar day in it; weekends inside a
+      shutdown cost nothing since they were never worked anyway.</div>
+  </div>
+  <div class="card">
     <div class="card-title">Column mapping</div>
     <div class="small" style="margin-bottom:12px">Set once from your first files and reused for every later upload. Fields marked <i style="color:var(--red);font-style:normal">*</i> are required.</div>
     <div id="mapEditor"></div>
@@ -891,7 +918,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-08-28 · 24';
+const BUILD = '2026-09-01 · 25';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -947,6 +974,7 @@ let state = {
   imports: [],     // { id, ts, kind, filename, hash, rows, added, skipped }
   mappings: { stock: {}, movements: {}, orders: {} },
   settings: freshSettings(),
+  calendar: { off: {}, work: {} },   // days added / holidays cancelled by hand
   migrations: {},  // one-off corrections already applied to this database
   plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {} },
   plans: {},      // 'YYYY-MM' -> the plan as it stood when saved
@@ -1027,6 +1055,7 @@ function loadState() {
           // copy hide a plant the defaults know about. Rebuild them properly.
           state.settings.capacity = { ...DEFAULTS.capacity, ...(state.settings.capacity || {}) };
           state.settings.target   = { ...DEFAULTS.target,   ...(state.settings.target   || {}) };
+          state.calendar = { off: {}, work: {}, ...(r.calendar || {}) };
           state.migrations = { ...(r.migrations || {}) };
           migrateSettings(state.settings, state.migrations);
           state.mappings = { stock: {}, movements: {}, orders: {}, ...(r.mappings || {}) };
@@ -1091,6 +1120,7 @@ function mergeStates(local, remote) {
     settings: newer.settings || older.settings || {},
     mappings: newer.mappings || older.mappings || {},
     plan: newer.plan || older.plan || {},
+    calendar: (newer.calendar || older.calendar || { off: {}, work: {} }),
     migrations: { ...(older.migrations || {}), ...(newer.migrations || {}) },
     plans: { ...(older.plans || {}), ...(newer.plans || {}) },
     actuals: { ...(older.actuals || {}), ...(newer.actuals || {}) },
@@ -1498,9 +1528,92 @@ function daysBetween(a, b) { return Math.round((fromISO(b) - fromISO(a)) / DAY);
 function monthKey(iso) { return iso.slice(0, 7); }
 function monthDays(mk) { const [y, m] = mk.split('-').map(Number); return new Date(y, m, 0).getDate(); }
 function isWorkday(iso) { const d = fromISO(iso).getDay(); return d !== 0 && d !== 6; }
+
+// ═══ THE WORK CALENDAR ══════════════════════════════════════
+// Mon–Fri is only most of the answer. Public holidays and a collective
+// shutdown are days the line is dark, and a projection that consumes on them
+// pulls every stockout date earlier than it really is.
+//
+// Slovenian work-free days (dela prosti dnevi) are computed rather than
+// listed, because Easter moves and a hardcoded table would quietly expire.
+// Days that are a praznik but still worked — Primož Trubar (17 Aug), Rudolf
+// Maister (23 Nov) and the rest — are deliberately absent.
+const SI_FIXED = [
+  ['01-01', 'novo leto'],
+  ['01-02', 'novo leto'],
+  ['02-08', 'Prešernov dan'],
+  ['04-27', 'dan upora proti okupatorju'],
+  ['05-01', 'praznik dela'],
+  ['05-02', 'praznik dela'],
+  ['06-25', 'dan državnosti'],
+  ['08-15', 'Marijino vnebovzetje'],
+  ['10-31', 'dan reformacije'],
+  ['11-01', 'dan spomina na mrtve'],
+  ['12-25', 'božič'],
+  ['12-26', 'dan samostojnosti in enotnosti'],
+];
+
+// Anonymous Gregorian computus — Easter Sunday for any year in the Gregorian
+// calendar. Whit Sunday is Easter + 49.
+function easterISO(year) {
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+}
+
+function statutoryHolidays(year) {
+  const out = {};
+  for (const [md, name] of SI_FIXED) out[year + '-' + md] = name;
+  const easter = easterISO(year);
+  out[easter] = 'velikonočna nedelja';
+  out[addDays(easter, 1)] = 'velikonočni ponedeljek';
+  out[addDays(easter, 49)] = 'binkoštna nedelja';
+  return out;
+}
+
+function calendar() {
+  const c = state.calendar || {};
+  return { off: c.off || {}, work: c.work || {} };
+}
+function editCalendar(fn) {
+  const c = calendar();
+  state.calendar = { off: { ...c.off }, work: { ...c.work } };
+  fn(state.calendar);
+  invalidate(); saveState();
+}
+
+// Why a date is not worked, or null if it is. Manual entries win over the
+// statutory list in both directions: a day marked worked is worked even if it
+// is Christmas, and a day added by hand is off even if it is a plain Tuesday.
+const NO_DAYS = {};
+function dayOff(iso) {
+  // Called once per material per day of every projection, so it reads the
+  // stored maps directly rather than building a copy each time.
+  const c = state.calendar || NO_DAYS;
+  const off = c.off || NO_DAYS, work = c.work || NO_DAYS;
+  if (off[iso]) return { name: off[iso], source: 'manual' };
+  if (work[iso]) return null;
+  const y = Number(iso.slice(0, 4));
+  const name = memo('hol|' + y, () => statutoryHolidays(y))[iso];
+  return name ? { name, source: 'statutory' } : null;
+}
+
+// A day the line actually runs: a weekday that is not a holiday or shutdown.
+function isRunDay(iso) { return isWorkday(iso) && !dayOff(iso); }
+
 // Whether paper is consumed on a given date. The machines run Monday to
-// Friday, so a rate is per working day and no stock is drawn at the weekend.
-function consumesOn(iso) { return state.settings.usageDays === 'all' || isWorkday(iso); }
+// Friday, and never on a day the calendar says the plant is closed.
+function consumesOn(iso) {
+  if (dayOff(iso)) return false;
+  return state.settings.usageDays === 'all' || isWorkday(iso);
+}
 function shortDate(iso) { return iso ? iso.slice(8, 10) + '.' + iso.slice(5, 7) + '.' : ''; }
 
 function fmt(n, dec) {
@@ -3005,7 +3118,7 @@ function productionDays(mk, mode, explicit) {
   const all = [];
   for (let i = 1; i <= n; i++) all.push(mk + '-' + String(i).padStart(2, '0'));
   if (mode === 'cal') return all;
-  const week = all.filter(isWorkday);
+  const week = all.filter(isRunDay);
   if (mode !== 'fixed') return week;
 
   const target = Math.max(0, Math.round(Number(explicit) || 0));
@@ -3016,7 +3129,7 @@ function productionDays(mk, mode, explicit) {
     for (let i = 0; i < target; i++) keep.push(week[Math.floor(i * week.length / target)]);
     return keep;
   }
-  const weekend = all.filter(d => !isWorkday(d));
+  const weekend = all.filter(d => !isRunDay(d));
   const extra = Math.min(weekend.length, target - week.length);
   const added = [];
   for (let i = 0; i < extra; i++) added.push(weekend[Math.floor(i * weekend.length / extra)]);
@@ -3169,7 +3282,7 @@ function renderPlanning() {
   const existingTotal = plan.rows.reduce((s, r) => s + r.existingInMonth, 0);
 
   // ── the arithmetic, spelled out ──
-  const weekendRun = plan.runDays.filter(d => !isWorkday(d)).length;
+  const weekendRun = plan.runDays.filter(d => !isRunDay(d)).length;
   const dayWord = plan.mode === 'cal' ? 'calendar days'
                 : plan.mode === 'fixed' ? 'agreed production days'
                 : 'working days';
@@ -4546,6 +4659,124 @@ function renderImportPage() {
 // ═══════════════════════════════════════════════════════════
 // PAGE: SETTINGS
 // ═══════════════════════════════════════════════════════════
+// ═══ SETTINGS: THE WORK CALENDAR ═══════════════════════════
+const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function dowOf(iso) { return DOW_SHORT[fromISO(iso).getDay()]; }
+
+// Years worth offering: whatever the data touches, plus this year and next,
+// so a calendar can be set up before the movements for it exist.
+function calendarYears() {
+  const ys = new Set();
+  const now = new Date().getFullYear();
+  ys.add(now); ys.add(now + 1);
+  const first = firstMovementDate(), last = lastMovementDate();
+  if (first) for (let y = Number(first.slice(0, 4)); y <= Number((last || first).slice(0, 4)); y++) ys.add(y);
+  for (const o of state.orders) if (o.delivery) ys.add(Number(o.delivery.slice(0, 4)));
+  return [...ys].sort((a, b) => a - b);
+}
+
+function runDaysInYear(y) {
+  let n = 0;
+  for (let d = y + '-01-01'; d.slice(0, 4) == y; d = addDays(d, 1)) if (isRunDay(d)) n++;
+  return n;
+}
+
+let calYear = null;
+function renderCalendar() {
+  const years = calendarYears();
+  if (calYear === null || years.indexOf(calYear) === -1) calYear = new Date().getFullYear();
+  if (years.indexOf(calYear) === -1) calYear = years[0];
+
+  const sel = document.getElementById('calYear');
+  sel.innerHTML = years.map(y => '<option value="' + y + '"' + (y === calYear ? ' selected' : '') + '>' + y + '</option>').join('');
+  sel.onchange = () => { calYear = Number(sel.value); renderCalendar(); };
+
+  const c = calendar();
+  const stat = statutoryHolidays(calYear);
+  const dates = Object.keys(stat).sort();
+
+  // Only a holiday that lands on a weekday costs anything — the rest were
+  // never worked, so saying so keeps the list from looking alarming.
+  const weekdayHols = dates.filter(isWorkday);
+  const cancelled = weekdayHols.filter(d => c.work[d]).length;
+  const manualThisYear = Object.keys(c.off).filter(d => d.slice(0, 4) == calYear).sort();
+  const manualWeekdays = manualThisYear.filter(isWorkday).length;
+
+  document.getElementById('calSummary').innerHTML =
+    '<strong>' + runDaysInYear(calYear) + '</strong> days the line runs in ' + calYear + '<br>' +
+    '<span class="muted">' + (weekdayHols.length - cancelled) + ' statutory weekday(s) off' +
+    (manualWeekdays ? ' · ' + manualWeekdays + ' added by hand' : '') + '</span>';
+
+  document.getElementById('calStatutory').innerHTML =
+    '<div class="table-wrap"><table><thead><tr>' +
+    '<th>Date</th><th>Day</th><th>Holiday</th><th>Status</th><th></th>' +
+    '</tr></thead><tbody>' + dates.map(d => {
+      const weekend = !isWorkday(d);
+      const worked = !!c.work[d];
+      const pill = weekend ? '<span class="pill">weekend anyway</span>'
+                 : worked ? '<span class="pill warn">we work this day</span>'
+                          : '<span class="pill">closed</span>';
+      return '<tr' + (weekend ? ' class="muted"' : '') + '>' +
+        '<td class="mono">' + esc(d) + '</td>' +
+        '<td>' + dowOf(d) + '</td>' +
+        '<td>' + esc(stat[d]) + '</td>' +
+        '<td>' + pill + '</td>' +
+        '<td class="num">' + (weekend ? '' :
+          '<button class="btn" data-holtoggle="' + esc(d) + '">' +
+          (worked ? 'Mark closed' : 'We work it') + '</button>') + '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+
+  document.getElementById('calStatutory').querySelectorAll('[data-holtoggle]').forEach(b => {
+    b.onclick = () => {
+      const d = b.dataset.holtoggle;
+      editCalendar(cal => { if (cal.work[d]) delete cal.work[d]; else cal.work[d] = 1; });
+      renderCalendar(); refreshAll();
+    };
+  });
+
+  const host = document.getElementById('calManual');
+  if (!manualThisYear.length) {
+    host.innerHTML = '<div class="small">Nothing added for ' + calYear + '.</div>';
+  } else {
+    host.innerHTML = '<div class="table-wrap"><table><thead><tr>' +
+      '<th>Date</th><th>Day</th><th>Reason</th><th></th></tr></thead><tbody>' +
+      manualThisYear.map(d =>
+        '<tr' + (isWorkday(d) ? '' : ' class="muted"') + '><td class="mono">' + esc(d) + '</td>' +
+        '<td>' + dowOf(d) + (isWorkday(d) ? '' : ' <span class="muted">· weekend anyway</span>') + '</td>' +
+        '<td>' + esc(c.off[d]) + '</td>' +
+        '<td class="num"><button class="btn" data-holdel="' + esc(d) + '">Remove</button></td></tr>').join('') +
+      '</tbody></table></div>';
+    host.querySelectorAll('[data-holdel]').forEach(b => {
+      b.onclick = () => {
+        editCalendar(cal => { delete cal.off[b.dataset.holdel]; });
+        renderCalendar(); refreshAll();
+      };
+    });
+  }
+
+  document.getElementById('calAdd').onclick = () => {
+    const from = document.getElementById('calFrom').value;
+    const to = document.getElementById('calTo').value || from;
+    const why = document.getElementById('calWhy').value.trim() || 'closed';
+    if (!from) { notify('Pick a date first', 'err'); return; }
+    if (to < from) { notify('The end date is before the start date', 'err'); return; }
+    if (daysBetween(from, to) > 366) { notify('That range is over a year long', 'err'); return; }
+    let added = 0;
+    editCalendar(cal => {
+      for (let d = from; d <= to; d = addDays(d, 1)) {
+        cal.off[d] = why;
+        delete cal.work[d];          // an explicit closure overrides "we work it"
+        added++;
+      }
+    });
+    document.getElementById('calFrom').value = '';
+    document.getElementById('calTo').value = '';
+    document.getElementById('calWhy').value = '';
+    calYear = Number(from.slice(0, 4));
+    notify(added + ' day(s) marked closed', 'ok');
+    renderCalendar(); refreshAll();
+  };
+}
 function renderSettings() {
   const s = state.settings;
   document.getElementById('setPlantProd').value = s.plantProd;
@@ -4580,6 +4811,7 @@ function renderSettings() {
     b.onclick = () => { state.mappings[b.dataset.clearmap] = {}; saveState(true); renderSettings(); };
   });
 
+  renderCalendar();
   Dropbox.render();
 
   const snapCount = PLANTS().reduce((n, p) => n + snapDates(p).length, 0);
@@ -4644,7 +4876,8 @@ function wireSettings() {
     if (synced) Dropbox.disconnect();
     state = { version: 1, materials: {}, stock: {}, movements: [], orders: [], ordersDate: null,
               imports: [], mappings: { stock: {}, movements: {}, orders: {} },
-              settings: freshSettings(), migrations: { si10cap: 1 }, plans: {}, actuals: {},
+              settings: freshSettings(), migrations: { si10cap: 1 }, calendar: { off: {}, work: {} },
+              plans: {}, actuals: {},
               plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {} } };
     invalidate(); saveState(true); boot();
   };

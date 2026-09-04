@@ -170,6 +170,24 @@ only, the all-time average uses both.
   produced and the real paper weight per square metre falls out, which is how
   the waste allowance should be set rather than guessed.
 
+## The work calendar
+Mon–Fri is only most of the answer, so **Settings → Holidays & shutdowns** holds
+the rest. Slovenian work-free days are **computed** rather than listed — Easter
+moves, and a hardcoded table would quietly expire — from the twelve fixed dates
+plus Easter Sunday, Easter Monday and Whit Sunday, derived with the anonymous
+Gregorian computus. Days that are a praznik but still worked (Primož Trubar,
+Rudolf Maister) are deliberately absent.
+
+Any of those can be marked **we work this day**, and any date can be added by
+hand with a reason — a single closure or a range, which is how a collective
+shutdown goes in. A hand-added closure always wins over a cancelled holiday.
+
+One function, `dayOff()`, answers the question, and `consumesOn()` and
+`isRunDay()` are the only two things that ask it. So the calendar reaches
+everything at once: usage-rate denominators, the forecast walk, the warehouse
+and stock-balancing projections, and the month's production-day count. The
+calendar syncs with everything else.
+
 ## Importing
 
 Drop `.xlsx`, `.xls` or `.csv` files onto the Import tab, several at once. Each
