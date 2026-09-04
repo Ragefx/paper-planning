@@ -56,7 +56,7 @@ counted whatever the stock type, because it was consumed.
 When the warehouse plant stopped consuming more than a fortnight before the
 latest movement, the all-time average is describing a two-site operation that
 no longer exists. Selecting that basis says so, and names the date production
-there stopped. Use the 7- or 30-day basis for planning.
+there stopped. Use one of the SI11-only bases for planning.
 
 Two further things the numbers depend on, both handled explicitly:
 
@@ -68,7 +68,7 @@ Two further things the numbers depend on, both handled explicitly:
   quantity onto an arbitrary day. The quantity involved is shown alongside.
 
 Plants are configurable. The defaults assume **SI11** is the running plant and
-**SI10** is a warehouse: the 7- and 30-day usage averages use SI11 movements
+**SI10** is a warehouse: the 30-, 60- and 90-day usage averages use SI11 movements
 only, the all-time average uses both.
 
 ## Views
@@ -100,7 +100,7 @@ only, the all-time average uses both.
   `!` for orders already past their delivery date, which the projection assumes
   arrive today.
 - **Material Forecast** — projection for one material over 14–90 days, with
-  current stock and the 7-day, 30-day and all-time usage averages, plus arrival
+  current stock and the 30-, 60- and 90-day and all-time usage averages, plus arrival
   markers carrying order number, quantity and supplier.
 - **Warehouse Movement** — a month at a time: actual stock from the daily
   snapshots, extended backwards by unwinding the movement history for days with

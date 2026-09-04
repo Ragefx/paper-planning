@@ -532,8 +532,9 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
     </label>
     <label class="fld">Coverage basis
       <select id="matUsageBasis">
-        <option value="7">Avg usage 7 d (SI11)</option>
         <option value="30" selected>Avg usage 30 d (SI11)</option>
+        <option value="60">Avg usage 60 d (SI11)</option>
+        <option value="90">Avg usage 90 d (SI11)</option>
         <option value="all">Avg usage all time (SI10+SI11)</option>
       </select>
     </label>
@@ -563,8 +564,9 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
     </label>
     <label class="fld">Usage basis
       <select id="fcBasis">
-        <option value="7">Avg 7 d (SI11)</option>
         <option value="30" selected>Avg 30 d (SI11)</option>
+        <option value="60">Avg 60 d (SI11)</option>
+        <option value="90">Avg 90 d (SI11)</option>
         <option value="all">Avg all time (SI10+SI11)</option>
       </select>
     </label>
@@ -612,8 +614,9 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
     </label>
     <label class="fld">Usage basis
       <select id="whBasis">
-        <option value="7">Avg 7 d (SI11)</option>
         <option value="30" selected>Avg 30 d (SI11)</option>
+        <option value="60">Avg 60 d (SI11)</option>
+        <option value="90">Avg 90 d (SI11)</option>
         <option value="all">Avg all time (SI10+SI11)</option>
       </select>
     </label>
@@ -918,7 +921,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-01 · 25';
+const BUILD = '2026-09-01 · 26';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -2738,9 +2741,10 @@ function renderForecast() {
   }
 
   const unit = unitOf(code);
-  const u7 = avgUsage(code, '7'), u30 = avgUsage(code, '30'), uAll = avgUsage(code, 'all');
+  const u30 = avgUsage(code, '30'), u60 = avgUsage(code, '60'),
+        u90 = avgUsage(code, '90'), uAll = avgUsage(code, 'all');
   const cur = stockScope(code, scope);
-  const used = basis === '7' ? u7 : basis === 'all' ? uAll : u30;
+  const used = avgUsage(code, basis);
   const ordered = onOrderQty(code);
 
   const proj = project(code, { days, scope, dailyUsage: used });
@@ -2752,8 +2756,9 @@ function renderForecast() {
   statsHost.innerHTML = [
     tile('Current stock', fmt(cur, 0) + (unit ? '<span class="stat-unit">' + esc(unit) + '</span>' : ''),
          PLANT_WH() + ' ' + fmt(currentStock(PLANT_WH())[code] || 0, 0) + ' · ' + PLANT_PROD() + ' ' + fmt(currentStock(PLANT_PROD())[code] || 0, 0)),
-    tile('Avg usage · 7 days', fmt(u7), basisNote('7')),
     tile('Avg usage · 30 days', fmt(u30), basisNote('30')),
+    tile('Avg usage · 60 days', fmt(u60), basisNote('60')),
+    tile('Avg usage · 90 days', fmt(u90), basisNote('90')),
     tile('Avg usage · all time', fmt(uAll), basisNote('all')),
     tile('On order', fmt(ordered, 0), (openOrders()[code] || []).length + ' open line(s)' +
          (unconfirmedCount(code) ? ' · ' + fmt(unconfirmedQty(code), 0) + ' with no confirmed date' : '')),
