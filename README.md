@@ -105,6 +105,16 @@ only, the all-time average uses both.
 - **Warehouse Movement** — a month at a time: actual stock from the daily
   snapshots, extended backwards by unwinding the movement history for days with
   no snapshot yet, then a dashed projection ahead. Optionally split by plant.
+
+  Hovering says different things either side of today. On a future day the
+  tooltip lists the deliveries expected — order, quantity, supplier. On a past
+  day it reports what was actually posted: goods received and paper consumed,
+  one total each, with a transfer line only when stock moved between the plants
+  (without it, a day where the line jumps has no explanation on the chart).
+  These daily figures sum exactly to the month tiles above the chart, and they
+  honour the material and plant currently in view. A past working day with
+  nothing posted says so, and a day the calendar closes says the plant was
+  closed rather than showing zeros.
 - **Production Planning** — enter the month's board area and grammage; the app
   works out the paper, splits it across materials by their historical usage mix
   (editable), and returns an order list: what to order, how much, and by when.

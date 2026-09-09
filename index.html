@@ -921,7 +921,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-04 · 27';
+const BUILD = '2026-09-09 · 28';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -2418,6 +2418,8 @@ function chartBase() {
         cornerRadius: 6, displayColors: true, boxPadding: 4,
         titleFont: { family: "'IBM Plex Mono', monospace", size: 11 },
         bodyFont: { family: "'IBM Plex Sans', sans-serif", size: 12 },
+        footerColor: cssVar('--text-2'), footerMarginTop: 9,
+        footerFont: { family: "'IBM Plex Mono', monospace", size: 10.5, weight: '400' },
       },
     },
     scales: {
@@ -2902,6 +2904,28 @@ function actualSeries(plant, code, dates) {
   return out;
 }
 
+// What was actually posted on each day of a month, for the materials and
+// plants currently in view. The projection side of the chart can say what is
+// expected; only the postings can say what happened.
+function dayPostings(codes, mk, scope) {
+  const want = new Set(codes);
+  const out = {};
+  const bucket = d => out[d] || (out[d] = { received: 0, used: 0, moved: 0 });
+  for (const m of state.movements) {
+    if (!m.date.startsWith(mk)) continue;
+    if (!want.has(m.code)) continue;
+    if (scope !== 'both' && scope !== 'split' && m.plant !== scope) continue;
+    const kind = (MVT[m.mvt] || {}).kind;
+    const b = bucket(m.date);
+    // Signs match the month tiles above the chart, so the two reconcile:
+    // receipts positive, usage positive, transfers signed by direction.
+    if (kind === 'receipt' && ownStock(m)) b.received += m.qty;
+    else if (USAGE_MVT.indexOf(m.mvt) > -1) b.used -= m.qty;
+    else if (kind === 'transfer' && ownStock(m)) b.moved += m.qty;
+  }
+  return out;
+}
+
 function renderWarehouse() {
   const mk = document.getElementById('whMonth').value || monthKey(todayISO());
   const code = document.getElementById('whMaterial').value || '__all__';
@@ -3013,6 +3037,25 @@ function renderWarehouse() {
   const opt = chartBase();
   opt.scales.y.beginAtZero = false;
   opt.scales.x.ticks.callback = (v, i) => dates[i].slice(8);
+  // What actually happened on a past day, read off the postings rather than
+  // the projection. One line each for goods in and paper consumed, and a
+  // transfer line only when there was one — without it a day where stock
+  // moved between the plants has no explanation on the chart at all.
+  const posted = dayPostings(codes, mk, whScope);
+  const dayFooter = d => {
+    if (d > today) return '';
+    const a = posted[d];
+    if (!a || (!a.received && !a.used && !a.moved)) {
+      return consumesOn(d) ? 'nothing posted' : 'plant closed';
+    }
+    const rows = ['Received  ' + fmt(a.received, 0) + ' kg',
+                  'Used      ' + fmt(a.used, 0) + ' kg'];
+    if (Math.round(a.moved)) {
+      rows.push('Transfer  ' + (a.moved > 0 ? '+' : '') + fmt(a.moved, 0) + ' kg');
+    }
+    return rows;
+  };
+
   opt.plugins.tooltip.callbacks = {
     title: items => dates[items[0].dataIndex],
     label(ctx) {
@@ -3020,6 +3063,7 @@ function renderWarehouse() {
       if (ctx.parsed.y === null) return null;
       return ctx.dataset.label + ': ' + fmt(ctx.parsed.y);
     },
+    footer: items => dayFooter(dates[items[0].dataIndex]),
   };
 
   document.getElementById('whChartTitle').textContent =
