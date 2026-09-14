@@ -897,6 +897,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
   <div class="card">
     <div class="card-title">Data &amp; backup</div>
     <div id="dataStats" class="small" style="margin-bottom:12px"></div>
+    <div id="storageState" style="margin-bottom:14px;padding:11px 12px;background:var(--pane2);border:1px solid var(--rule);border-radius:var(--radius-sm)"></div>
     <div class="small" style="margin-bottom:12px">
       App version <code id="buildStamp"></code> — compare with the version noted in the repository if a change seems missing.
     </div>
@@ -921,7 +922,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-09 · 28';
+const BUILD = '2026-09-14 · 29';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -4860,6 +4861,97 @@ function renderCalendar() {
     renderCalendar(); refreshAll();
   };
 }
+// ═══ DURABLE STORAGE ════════════════════════════════════════
+// By default a browser treats site storage as disposable: under disk pressure
+// it may evict the lot, and a year of movements would go with it. Asking for
+// persistence marks it durable instead. Chrome decides from its own engagement
+// heuristics and answers without prompting; Firefox asks the user. Neither can
+// be forced, so the answer is reported rather than assumed.
+const Storage = (() => {
+  let granted = null;          // true / false / null = unknown or unsupported
+  let estimate = null;
+
+  function supported() {
+    return typeof navigator !== 'undefined' && navigator.storage &&
+           typeof navigator.storage.persisted === 'function';
+  }
+
+  async function refresh() {
+    if (!supported()) { granted = null; return granted; }
+    try { granted = await navigator.storage.persisted(); } catch (e) { granted = null; }
+    if (navigator.storage.estimate) {
+      try { estimate = await navigator.storage.estimate(); } catch (e) { estimate = null; }
+    }
+    return granted;
+  }
+
+  // Asking when it is already granted is a no-op, so this is safe to call on
+  // every load. A refusal is not an error — it just means best-effort storage.
+  async function request() {
+    if (!supported() || typeof navigator.storage.persist !== 'function') return null;
+    try {
+      if (await navigator.storage.persisted()) { granted = true; return true; }
+      granted = await navigator.storage.persist();
+    } catch (e) { granted = null; }
+    return granted;
+  }
+
+  function state() { return { supported: supported(), granted, estimate }; }
+  return { refresh, request, state, supported };
+})();
+
+function renderStorage() {
+  const el = document.getElementById('storageState');
+  if (!el) return;
+  const st = Storage.state();
+  // A browser quota is usually tens of gigabytes; printing that in megabytes
+  // reads as noise, so the unit follows the number.
+  const size = n => n >= 1073741824 ? (n / 1073741824).toFixed(1) + ' GB'
+                  : n >= 1048576    ? (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + ' MB'
+                  : Math.max(1, Math.round(n / 1024)) + ' KB';
+
+  let pill, note;
+  if (!st.supported) {
+    pill = '<span class="pill">not reported</span>';
+    note = 'This browser does not expose the storage API, so durability cannot be checked here. ' +
+           'The data is still written to disk and survives a restart; it is eviction under disk ' +
+           'pressure that cannot be ruled out. Keep a backup.';
+  } else if (st.granted === true) {
+    pill = '<span class="pill ok">durable</span>';
+    note = 'The browser has marked this database persistent: it will not be cleared to reclaim space. ' +
+           'Clearing site data by hand still erases it.';
+  } else {
+    pill = '<span class="pill warn">best effort</span>';
+    note = 'The browser has not granted persistence, so under heavy disk pressure it may clear this ' +
+           'database to reclaim space. It still survives closing the browser and rebooting. Chrome ' +
+           'usually grants it once the app has been used a few times or bookmarked; Firefox asks. ' +
+           'Export a backup in the meantime.';
+  }
+
+  const used = st.estimate && st.estimate.usage ? size(st.estimate.usage) : null;
+  const quota = st.estimate && st.estimate.quota ? size(st.estimate.quota) : null;
+
+  el.innerHTML =
+    '<div class="row" style="align-items:center;gap:10px;margin-bottom:8px">' +
+      '<strong>Storage</strong>' + pill +
+      (used ? '<span class="muted">' + used + ' used' + (quota ? ' of ' + quota + ' available' : '') + '</span>' : '') +
+      '<div class="spacer"></div>' +
+      (st.supported && st.granted !== true
+        ? '<button class="btn" id="btnPersist">Ask again</button>' : '') +
+    '</div>' +
+    '<div class="small">' + note + '</div>';
+
+  const btn = document.getElementById('btnPersist');
+  if (btn) btn.onclick = async () => {
+    btn.disabled = true;
+    const ok = await Storage.request();
+    await Storage.refresh();
+    renderStorage();
+    notify(ok ? 'The browser granted durable storage'
+              : 'The browser declined for now — try again after a few days of use', ok ? 'ok' : 'info');
+  };
+}
+
 function renderSettings() {
   const s = state.settings;
   document.getElementById('setPlantProd').value = s.plantProd;
@@ -4895,6 +4987,7 @@ function renderSettings() {
   });
 
   renderCalendar();
+  renderStorage();
   Dropbox.render();
 
   const snapCount = PLANTS().reduce((n, p) => n + snapDates(p).length, 0);
@@ -5113,6 +5206,9 @@ function boot() {
   refreshAll();
   renderImportPage();
   renderSettings();
+  // Ask the browser to keep this database rather than treat it as disposable.
+  // It answers on its own terms, so the result is displayed, never relied on.
+  Storage.request().then(() => Storage.refresh()).then(renderStorage);
 }
 
 function checkLibraries() {

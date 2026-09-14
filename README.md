@@ -193,6 +193,21 @@ Note that `skipped` counts duplicates *within* the file as well as against what
 is stored, so a large skip count on a first import is not by itself proof the
 rows were already held — the span is.
 
+## Where the data lives
+In **IndexedDB**, in the browser profile that imported it — on disk, not in
+memory, so it survives closing the browser and rebooting the machine. Dropbox is
+opt-in and off until connected; without it the app is entirely local and sends
+nothing anywhere. A different browser, or a different Windows user, is a
+different profile and therefore a different, empty database.
+
+A browser treats site storage as disposable by default and may evict it under
+disk pressure. The app asks for **persistent storage** on load and reports the
+answer in Settings — *durable*, *best effort*, or *not reported* on a browser
+without the API. The browser decides on its own terms (Chrome from engagement
+heuristics, silently; Firefox by asking), so the result is displayed rather than
+relied on, and there is an ask-again button. Clearing site data by hand erases
+the database whatever the verdict, which is what the JSON backup is for.
+
 ## The work calendar
 Mon–Fri is only most of the answer, so **Settings → Holidays & shutdowns** holds
 the rest. Slovenian work-free days are **computed** rather than listed — Easter
