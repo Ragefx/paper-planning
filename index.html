@@ -591,9 +591,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
   <div class="card">
     <div class="card-title" id="fcChartTitle">Projected stock</div>
     <div class="chart-box tall"><canvas id="fcChart"></canvas></div>
-    <div class="legend-note">Markers are expected arrivals from open purchase orders — hover for order number,
-      quantity and supplier. <strong>Filled</strong> means the supplier has confirmed the delivery,
-      <strong>hollow</strong> means it is ordered but not yet acknowledged.</div>
+    <div class="legend-note" id="fcLegendNote"></div>
   </div>
   <div class="card">
     <div class="card-title">Open orders for this material</div>
@@ -931,7 +929,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-16 · 34';
+const BUILD = '2026-09-16 · 36';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -987,6 +985,7 @@ let state = {
   movements: [],   // { key, date, plant, code, mvt, qty (signed), doc, item, ref, partner }
   orders: [],      // { po, item, code, plant, qty, deliveryDate, vendor, unit }
   ordersDate: null,
+  ordersSource: null,   // 'list' | 'sheet' — which export the open orders came from
   imports: [],     // { id, ts, kind, filename, hash, rows, added, skipped }
   mappings: { stock: {}, movements: {}, orders: {} },
   settings: freshSettings(),
@@ -1074,6 +1073,7 @@ function loadState() {
           state.settings.target   = { ...DEFAULTS.target,   ...(state.settings.target   || {}) };
           state.calendar = { off: {}, work: {}, ...(r.calendar || {}) };
           state.orderFlags = r.orderFlags || {};
+          state.ordersSource = r.ordersSource || null;
           state.migrations = { ...(r.migrations || {}) };
           migrateSettings(state.settings, state.migrations);
           state.mappings = { stock: {}, movements: {}, orders: {}, ...(r.mappings || {}) };
@@ -1174,6 +1174,7 @@ function mergeStates(local, remote) {
   const pick = ro > lo ? remote : lo > ro ? local : newer;
   out.orders = pick.orders || [];
   out.ordersDate = pick.ordersDate || null;
+  out.ordersSource = pick.ordersSource || null;
 
   // Import log — union by id, newest first.
   const ids = new Set();
@@ -2382,6 +2383,39 @@ function rememberOrderFlags(rows) {
   return n;
 }
 
+// What share of a list can actually be placed on a timeline. An undated line
+// counts towards "on order" and appears nowhere else, so this is the measure of
+// how useful a list is, not its length.
+function datedShare(rows) {
+  return rows.length ? rows.filter(o => o.delivery).length / rows.length : 0;
+}
+
+// The spreadsheet export cannot date every line and the purchase-order list
+// cannot flag any, so letting the spreadsheet replace a current list would
+// trade real delivery dates for nothing — and silently, since undated lines
+// simply vanish from every projection.
+//
+// The test is which export a list came from, not how well dated it happens to
+// be: two spreadsheets a day apart differ by a percent or two of dated lines,
+// and refusing the newer one on that basis would be wrong. A spreadsheet still
+// takes over once the held list has gone stale, so dropping the list export
+// needs no setting — the app follows whatever is actually being imported.
+function ordersAreADowngrade(rows, kind, asOf) {
+  if (!state.orders.length || !rows.length) return false;
+  if (kind !== 'sheet' || state.ordersSource !== 'list') return false;
+  return !state.ordersDate || !asOf || state.ordersDate >= asOf;
+}
+
+// How many open lines the app can say anything about. Unknown is not the same
+// as confirmed, and a page showing no unconfirmed lines should be able to say
+// whether that is good news or missing input.
+function confirmCoverage() {
+  const all = state.orders;
+  const known = all.filter(o => confirmStatus(o) !== 'unknown');
+  return { total: all.length, known: known.length,
+           unconfirmed: all.filter(o => confirmStatus(o) === 'unconfirmed').length };
+}
+
 // 'confirmed' | 'unconfirmed' | 'unknown'. A flag on the line itself wins,
 // since it came from the same file as the quantity.
 function confirmStatus(o) {
@@ -2666,6 +2700,25 @@ function arrivalState(a) {
     if (STATE_RANK[st] < STATE_RANK[worst]) worst = st;
   }
   return worst;
+}
+
+// Seeing no unconfirmed lines means one of two very different things, so the
+// tabs say which: none are outstanding, or nothing has been imported that could
+// tell. Silence would read as the good news either way.
+function coverageNote() {
+  const c = confirmCoverage();
+  if (!c.total) return '';
+  if (!c.known) {
+    return '<strong>No confirmation status is held for any line</strong> — the purchase-order list does not ' +
+           'carry it. Import the orders spreadsheet as well and these markers fill in.';
+  }
+  if (c.known < c.total) {
+    return 'Confirmation is known for <strong>' + c.known + ' of ' + c.total + '</strong> open line(s); ' +
+           'the rest are newer than the last orders spreadsheet. Export the two on the same day and they agree.';
+  }
+  return c.unconfirmed
+    ? '<strong>' + c.unconfirmed + ' of ' + c.total + '</strong> open line(s) are not yet acknowledged.'
+    : 'Every open line is confirmed.';
 }
 
 // The same three states the markers use, as a table cell. Reserved status
@@ -3013,6 +3066,10 @@ function renderForecast() {
   const bareOut = bareProj.stockout ? daysBetween(todayISO(), bareProj.stockout) : null;
 
   document.getElementById('fcChartTitle').textContent = materialLabel(code);
+  document.getElementById('fcLegendNote').innerHTML =
+    'Markers are expected arrivals from open purchase orders — hover for order number, quantity and ' +
+    'supplier. <strong>Filled</strong> means the supplier has confirmed the delivery, <strong>hollow</strong> ' +
+    'means it is ordered but not yet acknowledged. ' + coverageNote();
   statsHost.innerHTML = [
     tile('Current stock', fmt(cur, 0) + (unit ? '<span class="stat-unit">' + esc(unit) + '</span>' : ''),
          PLANT_WH() + ' ' + fmt(currentStock(PLANT_WH())[code] || 0, 0) + ' · ' + PLANT_PROD() + ' ' + fmt(currentStock(PLANT_PROD())[code] || 0, 0)),
@@ -3317,7 +3374,7 @@ function renderWarehouse() {
       : 'Every open order line has a delivery date, so nothing is left out. ') +
     'A <strong>filled</strong> marker is a delivery the supplier has confirmed; a <strong>hollow</strong> one ' +
     'is ordered but not yet acknowledged. A day carrying both takes the weaker of the two — the tooltip ' +
-    'breaks it down line by line.';
+    'breaks it down line by line. ' + coverageNote();
 
   document.getElementById('whChartTitle').textContent =
     (code === '__all__' ? 'All materials' : materialLabel(code)) + ' · ' + mk;
@@ -4839,9 +4896,14 @@ function previewCounts(e) {
     // Replacing the list is the whole point, but it is also how a mis-filtered
     // export quietly deletes real orders, so say what goes as well as what comes.
     const going = state.orders.length;
+    const downgrade = ordersAreADowngrade(rows, e.fixed === 'purchaseList' ? 'list' : 'sheet', e.snapDate);
     return { newRows: rows.length,
       text: rows.length + ' open order line(s), ' + dated + ' with a delivery date. ' +
-        (going ? 'The ' + going + ' line(s) held now are replaced by this file. ' : '') +
+        (!going ? ''
+          : downgrade
+            ? 'The ' + going + ' line(s) held now come from the purchase-order list, which dates every line, ' +
+              'so they will be kept and only the confirmation flags taken from this file. '
+            : 'The ' + going + ' line(s) held now are replaced by this file. ') +
         (e.fixed ? warn.join(' ') : 'Lines are kept where the GR quantity is 0.') };
   } catch (err) {
     return { newRows: 0, text: 'Could not read this file with the current mapping: ' + String(err && err.message || err) };
@@ -4900,14 +4962,31 @@ function commit(id) {
     // Kept before the list is swapped, so the flags of the outgoing list are
     // still available to decide what is worth keeping.
     const flagged = rememberOrderFlags(res.rows);
-    if (flagged) warn.push(flagged + ' line(s) carried a supplier confirmation flag, remembered for ' +
-      'whichever export replaces this one.');
+    if (flagged) warn.push(flagged + ' line(s) carried a supplier confirmation flag.');
     undo.orders = state.orders;
     undo.ordersDate = state.ordersDate;
+    undo.ordersSource = state.ordersSource;
     skipped = state.orders.length;
-    state.orders = res.rows;
-    state.ordersDate = e.snapDate;
-    added = res.rows.length;
+    const srcKind = e.fixed === 'purchaseList' ? 'list' : 'sheet';
+    if (ordersAreADowngrade(res.rows, srcKind, e.snapDate)) {
+      // The spreadsheet export carries the confirmation flags but cannot date
+      // every line; the purchase-order list dates all of them but carries no
+      // flags. Letting the first replace the second would trade real delivery
+      // dates for nothing, and silently — the undated lines simply vanish from
+      // every projection. So take the flags and leave the list alone.
+      // Warnings are escaped wherever they appear, so they stay plain text.
+      warn.push('The order list was kept: the ' + state.orders.length + ' line(s) held come from the SAP ' +
+        'purchase-order list of ' + state.ordersDate + ' and are ' +
+        Math.round(datedShare(state.orders) * 100) + '% dated, where this file dates ' +
+        Math.round(datedShare(res.rows) * 100) + '%. Only the confirmation flags were taken. Import a newer ' +
+        'purchase-order list to replace the list itself.');
+      added = 0;
+    } else {
+      state.orders = res.rows;
+      state.ordersDate = e.snapDate;
+      state.ordersSource = srcKind;
+      added = res.rows.length;
+    }
   }
 
   state.mappings[e.kind] = { ...e.map };
@@ -4970,6 +5049,7 @@ function undoLastImport() {
   } else {
     state.orders = u.orders || [];
     state.ordersDate = u.ordersDate || null;
+    state.ordersSource = u.ordersSource || null;
   }
 
   state.imports.shift();

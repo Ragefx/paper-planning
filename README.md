@@ -259,6 +259,20 @@ A line's own flag always beats the remembered map, since it came from the same
 file as the quantity. Nothing is ever assumed confirmed: a line with no flag
 reads *unknown*.
 
+**Import order does not matter.** The spreadsheet cannot date every line and the
+list cannot flag any, so letting the spreadsheet replace a current list would
+trade real delivery dates for nothing — and silently, because undated lines
+vanish from every projection rather than appearing as gaps. A spreadsheet
+therefore takes only the flags while a current list is held, and says so. The
+test is which export a list came from, not how well dated it happens to be: two
+spreadsheets a day apart differ by a percent or two of dated lines and the newer
+one must still win. Once the held list goes stale the spreadsheet takes over on
+its own, so dropping the list export needs no setting.
+
+Seeing no unconfirmed markers means one of two very different things, so both
+tabs say which: none are outstanding, or nothing has been imported that could
+tell. The note gives the count either way.
+
 ## The work calendar
 Mon–Fri is only most of the answer, so **Settings → Holidays & shutdowns** holds
 the rest. Slovenian work-free days are **computed** rather than listed — Easter
