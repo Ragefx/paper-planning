@@ -107,7 +107,25 @@ only, the all-time average uses both.
   arrive today.
 - **Material Forecast** — projection for one material over 14–90 days, with
   current stock and the 30-, 60- and 90-day and all-time usage averages, plus arrival
-  markers carrying order number, quantity and supplier.
+  markers carrying order number, quantity and supplier. The material field
+  takes typing as well as picking — a code or any part of a description finds
+  the grade.
+
+  Each material carries its own minimum and maximum stock, set in days of
+  cover next to the usage basis and horizon; the minimum defaults to 14 days
+  and the maximum to the site-wide policy level, and either is overridden per
+  material and saved. Both are drawn on the chart as dotted lines, converted
+  to kilograms at the usage basis currently selected, so changing the basis
+  moves them.
+
+  Below the open-orders table, **Suggested movements and cancellations**
+  proposes what to do about deliveries that would push stock over the
+  maximum — push the order back to the first day it is actually needed, or
+  drop it if nothing in the next 180 days needs it at all — and about stock
+  that would fall under the minimum: move paper in from the other plant first,
+  then pull the next delivery forward or flag a shortfall if that is not
+  enough. Nothing is sent anywhere; it is a worklist for the supplier or the
+  fork-lift.
 - **Warehouse Movement** — a month at a time: actual stock from the daily
   snapshots, extended backwards by unwinding the movement history for days with
   no snapshot yet, then a dashed projection ahead. Optionally split by plant.

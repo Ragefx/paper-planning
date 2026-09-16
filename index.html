@@ -566,8 +566,10 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
     <div class="page-sub">30-day projection from current stock, open orders and average usage</div>
   </div>
   <div class="controls">
-    <label class="fld grow">Material
-      <select id="fcMaterial"></select>
+    <label class="fld" style="flex:0 1 270px;min-width:170px">Material
+      <input id="fcMaterial" list="fcMaterialList" autocomplete="off" spellcheck="false"
+             placeholder="type a code or a description">
+      <datalist id="fcMaterialList"></datalist>
     </label>
     <label class="fld">Usage basis
       <select id="fcBasis">
@@ -592,6 +594,12 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
         <option value="SI10">SI10 only</option>
       </select>
     </label>
+    <label class="fld" title="Days of cover this material must not fall below. Saved for this material alone.">Min (days)
+      <input type="number" id="fcMin" min="0" step="1" style="width:88px">
+    </label>
+    <label class="fld" title="Days of cover above which stock is more than this material needs. Saved for this material alone.">Max (days)
+      <input type="number" id="fcMax" min="0" step="1" style="width:88px">
+    </label>
   </div>
   <div class="stats" id="fcStats"></div>
   <div id="fcAlert"></div>
@@ -603,6 +611,10 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
   <div class="card">
     <div class="card-title">Open orders for this material</div>
     <div id="fcOrders"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Suggested movements and cancellations</div>
+    <div id="fcAdvice"></div>
   </div>
 </div>
 
@@ -945,7 +957,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-16 · 42';
+const BUILD = '2026-09-16 · 43';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -1008,6 +1020,7 @@ let state = {
   calendar: { off: {}, work: {} },   // days added / holidays cancelled by hand
   orderFlags: {},  // 'po|item' -> { confirmed, asOf } — outlives the order list
   orderSuppliers: {},  // purchase order -> the mill named by the spreadsheet
+  stockLevels: {},     // material -> { min, max } in days of cover, set by hand
   migrations: {},  // one-off corrections already applied to this database
   plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {} },
   plans: {},      // 'YYYY-MM' -> the plan as it stood when saved
@@ -1091,6 +1104,7 @@ function loadState() {
           state.calendar = { off: {}, work: {}, ...(r.calendar || {}) };
           state.orderFlags = r.orderFlags || {};
           state.orderSuppliers = r.orderSuppliers || {};
+          state.stockLevels = r.stockLevels || {};
           state.ordersSource = r.ordersSource || null;
           state.migrations = { ...(r.migrations || {}) };
           migrateSettings(state.settings, state.migrations);
@@ -1159,6 +1173,7 @@ function mergeStates(local, remote) {
     calendar: (newer.calendar || older.calendar || { off: {}, work: {} }),
     orderFlags: { ...(older.orderFlags || {}), ...(newer.orderFlags || {}) },
     orderSuppliers: { ...(older.orderSuppliers || {}), ...(newer.orderSuppliers || {}) },
+    stockLevels: { ...(older.stockLevels || {}), ...(newer.stockLevels || {}) },
     migrations: { ...(older.migrations || {}), ...(newer.migrations || {}) },
     plans: { ...(older.plans || {}), ...(newer.plans || {}) },
     actuals: { ...(older.actuals || {}), ...(newer.actuals || {}) },
@@ -3107,6 +3122,63 @@ function mostUrgentCode() {
   }
   return best;
 }
+// The site-wide policy on Production Planning sizes orders for every grade at
+// once. Lead times do not work that way — one mill delivers inside a week,
+// another takes two months — so each material carries its own floor and
+// ceiling, in days of cover, and falls back to these when it has none.
+const LEVEL_MIN_DAYS = 14;
+function materialLevels(code) {
+  const saved = (state.stockLevels || {})[code] || {};
+  const set = k => saved[k] !== undefined && saved[k] !== null && saved[k] !== '';
+  return {
+    min: set('min') ? Number(saved.min) : LEVEL_MIN_DAYS,
+    max: set('max') ? Number(saved.max) : (policyDays().max || 0),
+    minSet: set('min'), maxSet: set('max'),
+  };
+}
+function setMaterialLevel(code, which, value) {
+  const levels = { ...(state.stockLevels || {}) };
+  const cur = { ...(levels[code] || {}) };
+  // An empty box means "no opinion", which is not the same as zero: it hands
+  // the material back to the default rather than pinning it to nothing.
+  if (value === '' || value === null || !isFinite(Number(value))) delete cur[which];
+  else cur[which] = Math.max(0, Number(value));
+  if (cur.min === undefined && cur.max === undefined) delete levels[code];
+  else levels[code] = cur;
+  state.stockLevels = levels;
+  saveState();
+}
+
+// The material box takes typing as well as picking. Options carry the code as
+// their value and the description as their label, so the box always holds a
+// code — every other page that jumps here can go on setting it directly — while
+// typing part of a description still finds the grade.
+function fillMaterialInput(input, listEl) {
+  const codes = allMaterialCodes();
+  listEl.innerHTML = codes.map(c => {
+    const m = state.materials[c];
+    return '<option value="' + esc(c) + '"' + (m && m.desc ? ' label="' + esc(m.desc) + '"' : '') + '></option>';
+  }).join('');
+  const valid = c => codes.indexOf(c) > -1;
+  if (input.dataset.userPicked === '1' && valid(input.value)) return;
+  if (!valid(input.value)) input.value = codes.length ? (mostUrgentCode() || codes[0]) : '';
+}
+
+// What the user typed, resolved to a material. An exact code wins; failing that
+// a single grade whose code or description contains the text, so "170" picks
+// the one 170 g grade but stays put when several match.
+function resolveMaterial(raw) {
+  const codes = allMaterialCodes();
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  if (codes.indexOf(text) > -1) return text;
+  const lower = text.toLowerCase();
+  const exact = codes.filter(c => c.toLowerCase() === lower);
+  if (exact.length === 1) return exact[0];
+  const hits = codes.filter(c => materialLabel(c).toLowerCase().includes(lower));
+  return hits.length === 1 ? hits[0] : null;
+}
+
 function fillMaterialSelect(sel, keepAll) {
   const prev = sel.value;
   const codes = allMaterialCodes();
@@ -3122,20 +3194,37 @@ function fillMaterialSelect(sel, keepAll) {
 
 function renderForecast() {
   const sel = document.getElementById('fcMaterial');
-  const code = sel.value;
+  const code = resolveMaterial(sel.value);
   const basis = document.getElementById('fcBasis').value;
   const days = Number(document.getElementById('fcDays').value);
   const scope = document.getElementById('fcScope').value;
   const statsHost = document.getElementById('fcStats');
   const ordersHost = document.getElementById('fcOrders');
+  const adviceHost = document.getElementById('fcAdvice');
+  const minBox = document.getElementById('fcMin'), maxBox = document.getElementById('fcMax');
 
   if (!code) {
     statsHost.innerHTML = '';
     document.getElementById('fcAlert').innerHTML = '';
-    ordersHost.innerHTML = emptyState('No material selected', 'Import data first, then pick a material here.');
+    minBox.value = ''; maxBox.value = '';
+    minBox.disabled = maxBox.disabled = true;
+    const typed = String(sel.value || '').trim();
+    ordersHost.innerHTML = allMaterialCodes().length && typed
+      ? emptyState('No single material matches “' + typed + '”',
+                   'Keep typing, or pick one from the list. A code or any part of a description works.')
+      : emptyState('No material selected', 'Import data first, then pick a material here.');
+    adviceHost.innerHTML = '';
     if (charts.fcChart) { charts.fcChart.destroy(); delete charts.fcChart; }
     return;
   }
+  minBox.disabled = maxBox.disabled = false;
+  const levels = materialLevels(code);
+  // Only a level actually set is written into the box; a default is left as a
+  // placeholder so it is clear nothing has been decided for this grade yet.
+  minBox.value = levels.minSet ? levels.min : '';
+  minBox.placeholder = String(LEVEL_MIN_DAYS);
+  maxBox.value = levels.maxSet ? levels.max : '';
+  maxBox.placeholder = String(policyDays().max || 0);
 
   const unit = unitOf(code);
   const u30 = avgUsage(code, '30'), u60 = avgUsage(code, '60'),
@@ -3149,11 +3238,18 @@ function renderForecast() {
   const bareProj = project(code, { days, scope, dailyUsage: used, ignoreOrders: true });
   const bareOut = bareProj.stockout ? daysBetween(todayISO(), bareProj.stockout) : null;
 
+  const lv = { min: levels.min * used, max: levels.max * used };
   document.getElementById('fcChartTitle').textContent = materialLabel(code);
   document.getElementById('fcLegendNote').innerHTML =
     'Markers are expected arrivals from open purchase orders — hover for order number, quantity and ' +
     'supplier. <strong>Filled</strong> means the supplier has confirmed the delivery, <strong>hollow</strong> ' +
-    'means it is ordered but not yet acknowledged. ' + dateSourceNote() + coverageNote();
+    'means it is ordered but not yet acknowledged. ' +
+    (used > 0
+      ? 'The dotted lines are this material’s own minimum (' + fmt(levels.min, 0) + ' d, ' +
+        fmt(lv.min, 0) + ') and maximum (' + fmt(levels.max, 0) + ' d, ' + fmt(lv.max, 0) + ') cover at ' +
+        'the usage basis above, so changing the basis moves them. '
+      : 'No usage is recorded for this material, so the minimum and maximum cannot be drawn. ') +
+    dateSourceNote() + coverageNote();
   statsHost.innerHTML = [
     tile('Current stock', fmt(cur, 0) + (unit ? '<span class="stat-unit">' + esc(unit) + '</span>' : ''),
          PLANT_WH() + ' ' + fmt(currentStock(PLANT_WH())[code] || 0, 0) + ' · ' + PLANT_PROD() + ' ' + fmt(currentStock(PLANT_PROD())[code] || 0, 0)),
@@ -3185,6 +3281,9 @@ function renderForecast() {
         if (!byDate[labels[ctx.dataIndex]]) return null;
         return arrivalTooltip(byDate, labels).label(ctx);
       }
+      // The level lines are flat and named in the legend; repeating them on
+      // every hover would bury the one figure being read.
+      if (ctx.dataset.isLevel) return null;
       return 'Stock: ' + fmt(ctx.parsed.y) + (unit ? ' ' + unit : '');
     },
   };
@@ -3197,6 +3296,10 @@ function renderForecast() {
       datasets: [
         lineDs('Projected stock', proj.points.map(p => p.qty), cssVar('--s1'), false, true),
         ...arrivalDatasets(proj.arrivals, labels),
+        ...(used > 0 ? [
+          levelDs('Minimum · ' + fmt(levels.min, 0) + ' d', lv.min, labels.length, cssVar('--crit')),
+          levelDs('Maximum · ' + fmt(levels.max, 0) + ' d', lv.max, labels.length, cssVar('--warn')),
+        ] : []),
       ],
     },
     options: opt,
@@ -3225,6 +3328,8 @@ function renderForecast() {
       }).join('') + '</tbody></table></div>';
   }
 
+  renderAdvice(code, materialAdvice(code, { days, scope, used, levels }), levels);
+
   // Written fresh on every render, so it can never outlive the material it
   // describes — and stays empty when there is nothing to warn about.
   const alertHost = document.getElementById('fcAlert');
@@ -3241,6 +3346,199 @@ function renderForecast() {
       (undated ? ' A further ' + fmt(undated, 0) + ' is on order with no confirmed date and is not included.' : '') +
       '</div>';
   }
+}
+
+// ═══ WHAT TO DO ABOUT ONE MATERIAL ══════════════════════════
+// The same arithmetic as the chart, run against a hypothetical set of orders
+// so a suggestion can be tested before it is made. Usage is drawn only on days
+// the plant runs, and a delivery lands after that day's usage, exactly as
+// project() has it.
+function simulateStock(code, o, orders) {
+  const buckets = {};
+  for (const x of orders) {
+    if (!x.delivery) continue;
+    const d = x.delivery < o.start ? o.start : x.delivery;
+    if (daysBetween(o.start, d) > o.days) continue;
+    buckets[d] = (buckets[d] || 0) + x.qty;
+  }
+  let qty = o.startQty;
+  const pts = [];
+  for (let i = 0; i <= o.days; i++) {
+    const date = addDays(o.start, i);
+    if (i > 0 && consumesOn(date)) qty -= o.used;
+    if (buckets[date]) qty += buckets[date];
+    pts.push({ date, qty });
+  }
+  return pts;
+}
+
+// Orders to push back or drop, and stock to move between the plants, so one
+// material stays between its own floor and ceiling. Nothing here is acted on —
+// it is a proposal to take to the supplier or the fork-lift.
+// Cancelling is a claim about the whole future, not about the chart's horizon:
+// an order that nothing needs in the next 30 days may well be needed in the
+// 40th. So the advice is always worked out over at least this many days, and a
+// delivery that finds a day to land on is pushed back rather than dropped.
+const ADVICE_SPAN = 180;
+
+function materialAdvice(code, o) {
+  const { scope, used, levels } = o;
+  const days = Math.max(o.days, ADVICE_SPAN);
+  const start = todayISO();
+  const rows = [];
+  if (used <= 0) return { rows, blocked: 'no usage is recorded for this material, so there is nothing to size against' };
+
+  const floor = (levels.min || 0) * used;
+  const ceil = (levels.max || 0) * used;
+  const sim = (orders, startQty) => simulateStock(code, { start, days, used, startQty }, orders);
+  const startQty = stockScope(code, scope);
+  const live = (openOrders()[code] || []).filter(x => x.delivery &&
+    (scope === 'both' || !x.plant || x.plant === scope) &&
+    daysBetween(start, x.delivery) <= days);
+
+  // ── more than the ceiling: which orders need not come when they were told to ──
+  let kept = live.slice();
+  const dropped = [];
+  if (ceil > 0) {
+    // Latest first: the last delivery to arrive is the one the month can most
+    // easily do without.
+    const byLatest = live.slice().sort((a, b) => (a.delivery < b.delivery ? 1 : a.delivery > b.delivery ? -1 : 0));
+    for (const cand of byLatest) {
+      const peak = sim(kept, startQty).reduce((m, p) => Math.max(m, p.qty), -Infinity);
+      if (peak <= ceil) break;
+      const trial = kept.filter(x => x !== cand);
+      // An order that is needed before its own arrival date is not spare, however
+      // high the peak later on.
+      if (sim(trial, startQty).some(p => p.date <= cand.delivery && p.qty < floor)) continue;
+      kept = trial;
+      dropped.push(cand);
+    }
+  }
+  // Each dropped order goes back on the first day the material would otherwise
+  // be short — earliest first, so a later one is placed against a curve that
+  // already carries the earlier ones.
+  const byDate = dropped.slice().sort((a, b) => (a.delivery < b.delivery ? -1 : 1));
+  for (const cand of byDate) {
+    const pts = sim(kept, startQty);
+    const breach = pts.find(p => p.date > cand.delivery && p.qty < floor);
+    if (breach) {
+      kept = kept.concat([{ ...cand, delivery: breach.date }]);
+      rows.push({ action: 'defer', order: cand, to: breach.date,
+        why: 'stock stays above the ' + fmt(levels.min, 0) + '-day floor until ' + breach.date + ' without it' });
+    } else {
+      rows.push({ action: 'cancel', order: cand,
+        why: 'nothing in the next ' + days + ' days needs it — stock holds above the floor throughout' });
+    }
+  }
+
+  // ── less than the floor: move it in, pull it forward, or buy it ──
+  // The plant that runs is where a shortage bites, whatever scope is on screen:
+  // paper sitting in the closed plant is only useful once it has been moved.
+  const prodQty = currentStock(PLANT_PROD())[code] || 0;
+  const whQty = currentStock(PLANT_WH())[code] || 0;
+  const prodOrders = kept.filter(x => !x.plant || x.plant === PLANT_PROD());
+  const prodPts = simulateStock(code, { start, days, used, startQty: prodQty }, prodOrders);
+  const totalPts = sim(kept, startQty);
+  // A shortage is only worth acting on while it is close enough to be real. The
+  // long window exists to decide whether a delivery is surplus, not to call for
+  // paper five months out on today's usage rate.
+  const near = addDays(start, o.days);
+  const prodDip = prodPts.find(p => p.qty < floor && p.date <= near);
+  const totalDip = totalPts.find(p => p.qty < floor && p.date <= near);
+
+  if (prodDip && whQty > 0) {
+    const short = floor - prodDip.qty;
+    const move = Math.min(whQty, short);
+    const truck = Math.max(1, Number(state.settings.truckLoad) || 1);
+    rows.push({ action: 'move', qty: move, by: prodDip.date, from: PLANT_WH(), to: PLANT_PROD(),
+      loads: Math.ceil(move / truck),
+      why: PLANT_PROD() + ' alone drops to ' + fmt(prodDip.qty, 0) + ' on ' + prodDip.date +
+           ', under its ' + fmt(floor, 0) + ' floor, while ' + PLANT_WH() + ' holds ' + fmt(whQty, 0) });
+  }
+  if (totalDip) {
+    // Everything on hand and on order still falls short, so no amount of moving
+    // fixes it. Pull the next delivery forward if there is one, else buy.
+    const later = live.filter(x => x.delivery > totalDip.date)
+      .sort((a, b) => (a.delivery < b.delivery ? -1 : 1))[0];
+    const short = floor - totalDip.qty;
+    if (later) {
+      rows.push({ action: 'pull', order: later, to: totalDip.date, qty: short,
+        why: 'stock falls to ' + fmt(totalDip.qty, 0) + ' on ' + totalDip.date + ', ' + fmt(short, 0) +
+             ' under the floor, and this is the next delivery after it' });
+    } else {
+      rows.push({ action: 'order', qty: short, by: totalDip.date,
+        why: 'stock falls to ' + fmt(totalDip.qty, 0) + ' on ' + totalDip.date +
+             ' with nothing further on order in the next ' + days + ' days' });
+    }
+  }
+
+  // Reported over the horizon on screen, so the figures match the chart.
+  const shown = totalPts.filter(p => p.date <= near);
+  const peak = shown.reduce((m, p) => Math.max(m, p.qty), -Infinity);
+  const low = shown.reduce((m, p) => Math.min(m, p.qty), Infinity);
+  return { rows, floor, ceil, peak, low, span: days, horizon: o.days, deferred: dropped.length };
+}
+
+const ADVICE = {
+  defer:  { label: 'Push back', cls: 'warn' },
+  cancel: { label: 'Cancel',    cls: 'crit' },
+  move:   { label: 'Move',      cls: 'ok' },
+  pull:   { label: 'Pull forward', cls: 'warn' },
+  order:  { label: 'Order',     cls: 'crit' },
+};
+
+function renderAdvice(code, adv, levels) {
+  const host = document.getElementById('fcAdvice');
+  if (adv.blocked) { host.innerHTML = '<div class="small">Nothing to suggest: ' + esc(adv.blocked) + '.</div>'; return; }
+  // A ceiling under the floor cannot be satisfied, so every suggestion below is
+  // chasing a target that does not exist. Say so before the table, not after.
+  const clash = levels.max > 0 && levels.max < levels.min
+    ? '<div class="banner warn">The maximum (' + fmt(levels.max, 0) + ' days) is below the minimum (' +
+      fmt(levels.min, 0) + ' days), so no stock level satisfies both. The suggestions below aim at the ' +
+      'minimum first.</div>'
+    : '';
+  if (!adv.rows.length) {
+    host.innerHTML = clash +
+      '<div class="small">Nothing to move or cancel. Over the next ' + adv.horizon + ' days this ' +
+      'material stays between ' + fmt(adv.low, 0) + ' and ' + fmt(adv.peak, 0) + ', inside its ' +
+      fmt(levels.min, 0) + '-day floor of ' + fmt(adv.floor, 0) +
+      (adv.ceil > 0 ? ' and its ' + fmt(levels.max, 0) + '-day ceiling of ' + fmt(adv.ceil, 0) : '') +
+      ', and no delivery in the next ' + adv.span + ' days is more than it needs.</div>';
+    return;
+  }
+  const count = k => adv.rows.filter(r => r.action === k).length;
+  const freed = adv.rows.filter(r => r.action === 'defer' || r.action === 'cancel')
+                        .reduce((s, r) => s + r.order.qty, 0);
+  const bits = [];
+  if (count('defer')) bits.push(count('defer') + ' delivery(ies) to push back');
+  if (count('cancel')) bits.push(count('cancel') + ' to cancel');
+  if (freed) bits.push(fmt(freed, 0) + ' kg that need not arrive when it was told to');
+  if (count('move')) bits.push(count('move') + ' transfer(s) into ' + PLANT_PROD());
+  if (count('pull') || count('order')) bits.push((count('pull') + count('order')) + ' shortage(s) to cover');
+  host.innerHTML = clash +
+    (bits.length ? '<div class="small" style="margin-bottom:11px">' + esc(bits.join(' · ')) + '.</div>' : '') +
+    '<div class="table-wrap"><table><thead><tr>' +
+    '<th>Do</th><th>What</th><th class="num">Quantity</th><th>When</th><th>Why</th>' +
+    '</tr></thead><tbody>' + adv.rows.map(r => {
+      const a = ADVICE[r.action];
+      const what = r.order
+        ? '<span class="mono">' + esc(r.order.po) + (r.order.item ? '<span class="muted">/' + esc(r.order.item) + '</span>' : '') +
+          '</span> <span class="muted">due ' + esc(r.order.delivery) + '</span>'
+        : r.action === 'move'
+          ? esc(r.from + ' → ' + r.to) + ' <span class="muted">' + r.loads + ' lorry load(s)</span>'
+          : 'a new purchase order';
+      const when = r.to ? 'to ' + esc(r.to) : r.by ? 'by ' + esc(r.by) : '—';
+      return '<tr><td><span class="pill ' + a.cls + '">' + esc(a.label) + '</span></td>' +
+        '<td>' + what + '</td><td class="num">' + fmt(r.qty !== undefined ? r.qty : r.order.qty, 0) + '</td>' +
+        '<td class="mono">' + when + '</td><td class="small">' + esc(r.why) + '</td></tr>';
+    }).join('') + '</tbody></table></div>' +
+    '<div class="legend-note">Sized against this material’s own floor of ' + fmt(adv.floor, 0) +
+    (adv.ceil > 0 ? ' and ceiling of ' + fmt(adv.ceil, 0) : '') + ', at the usage basis chosen above. ' +
+    'Pushing an order back moves it to the first day the material would otherwise be short; cancelling means ' +
+    'nothing in the next ' + adv.span + ' days needs it at all. That window is deliberately longer than the ' +
+    'chart\u2019s, so an order is only ever dropped when there is nowhere left to put it — but it does assume ' +
+    'today\u2019s usage rate holds throughout. Nothing here is sent anywhere: it is a list to take to the ' +
+    'supplier.</div>';
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3526,6 +3824,15 @@ function supplierNote(orders) {
   return '<div class="legend-note">' + n + ' of these ' + orders.length + ' line(s) name the buying company ' +
     'rather than the mill: the purchase-order list prints only the vendor of the document. Import an orders ' +
     'spreadsheet covering those orders and the names fill in.</div>';
+}
+
+// A flat reference line across the whole chart — a stock level to stay above or
+// below, rather than anything measured.
+function levelDs(label, value, n, color) {
+  return {
+    label, data: new Array(n).fill(value), borderColor: color, borderWidth: 1,
+    borderDash: [3, 3], pointRadius: 0, pointHoverRadius: 0, fill: false, tension: 0, isLevel: true,
+  };
 }
 
 function lineDs(label, data, color, dashed, fill) {
@@ -5818,7 +6125,7 @@ function wireSettings() {
     state = { version: 1, materials: {}, stock: {}, movements: [], orders: [], ordersDate: null,
               imports: [], mappings: { stock: {}, movements: {}, orders: {} },
               settings: freshSettings(), migrations: { si10cap: 1 }, calendar: { off: {}, work: {} },
-              orderFlags: {}, orderSuppliers: {}, plans: {}, actuals: {},
+              orderFlags: {}, orderSuppliers: {}, stockLevels: {}, plans: {}, actuals: {},
               plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {} } };
     invalidate(); saveState(true); boot();
   };
@@ -5853,7 +6160,7 @@ function renderPage(page) {
 function refreshAll() {
   invalidate();
   renderDataAge();
-  fillMaterialSelect(document.getElementById('fcMaterial'), false);
+  fillMaterialInput(document.getElementById('fcMaterial'), document.getElementById('fcMaterialList'));
   fillMaterialSelect(document.getElementById('whMaterial'), true);
   renderPage(currentPage);
 }
@@ -5885,9 +6192,27 @@ function wire() {
   document.getElementById('matExport').onclick = exportMaterialsCSV;
 
   // Forecast
-  ['fcMaterial', 'fcBasis', 'fcDays', 'fcScope'].forEach(id =>
+  ['fcBasis', 'fcDays', 'fcScope'].forEach(id =>
     document.getElementById(id).onchange = renderForecast);
-  document.getElementById('fcMaterial').addEventListener('change', e => { e.target.dataset.userPicked = '1'; });
+  const fcMat = document.getElementById('fcMaterial');
+  // Picking from the list fires input, not change, so both are wired; typing a
+  // code that matches redraws as soon as it is complete.
+  ['input', 'change'].forEach(ev => fcMat.addEventListener(ev, () => {
+    fcMat.dataset.userPicked = '1';
+    renderForecast();
+  }));
+  // On leaving the box, a resolved material is written back in full, so a
+  // half-typed code never stays on screen looking like the chosen one.
+  fcMat.addEventListener('blur', () => {
+    const c = resolveMaterial(fcMat.value);
+    if (c && c !== fcMat.value) { fcMat.value = c; renderForecast(); }
+  });
+  ['fcMin', 'fcMax'].forEach(id => document.getElementById(id).onchange = e => {
+    const c = resolveMaterial(document.getElementById('fcMaterial').value);
+    if (!c) return;
+    setMaterialLevel(c, id === 'fcMin' ? 'min' : 'max', e.target.value);
+    renderForecast();
+  });
   document.getElementById('whMaterial').addEventListener('change', e => { e.target.dataset.userPicked = '1'; });
 
   // Warehouse
