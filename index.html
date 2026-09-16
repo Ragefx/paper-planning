@@ -1007,6 +1007,7 @@ let state = {
   settings: freshSettings(),
   calendar: { off: {}, work: {} },   // days added / holidays cancelled by hand
   orderFlags: {},  // 'po|item' -> { confirmed, asOf } — outlives the order list
+  orderSuppliers: {},  // purchase order -> the mill named by the spreadsheet
   migrations: {},  // one-off corrections already applied to this database
   plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {} },
   plans: {},      // 'YYYY-MM' -> the plan as it stood when saved
@@ -1089,6 +1090,7 @@ function loadState() {
           state.settings.target   = { ...DEFAULTS.target,   ...(state.settings.target   || {}) };
           state.calendar = { off: {}, work: {}, ...(r.calendar || {}) };
           state.orderFlags = r.orderFlags || {};
+          state.orderSuppliers = r.orderSuppliers || {};
           state.ordersSource = r.ordersSource || null;
           state.migrations = { ...(r.migrations || {}) };
           migrateSettings(state.settings, state.migrations);
@@ -1156,6 +1158,7 @@ function mergeStates(local, remote) {
     plan: newer.plan || older.plan || {},
     calendar: (newer.calendar || older.calendar || { off: {}, work: {} }),
     orderFlags: { ...(older.orderFlags || {}), ...(newer.orderFlags || {}) },
+    orderSuppliers: { ...(older.orderSuppliers || {}), ...(newer.orderSuppliers || {}) },
     migrations: { ...(older.migrations || {}), ...(newer.migrations || {}) },
     plans: { ...(older.plans || {}), ...(newer.plans || {}) },
     actuals: { ...(older.actuals || {}), ...(newer.actuals || {}) },
@@ -2051,12 +2054,17 @@ function extractMovements(rows, map, signMode) {
 }
 
 function extractOrders(rows, map, fallbackDate) {
-  const out = [], warn = [];
+  const out = [], warn = [], suppliers = {};
   let closed = 0, noDate = 0;
   for (const r of rows) {
     const code = matCode(pick(r, map, 'material'));
     const qty = num(pick(r, map, 'qty'));
     if (!code || qty === null) continue;
+    // Taken before the open-line filter: a line already delivered still names
+    // the mill behind its order, and a later line of it may well be open.
+    const po = String(pick(r, map, 'po') || '').trim();
+    const vendor = String(pick(r, map, 'vendor') || '').trim();
+    if (po && vendor) suppliers[po] = vendor;
     const grQty = num(pick(r, map, 'grQty'));
     // Only lines still fully outstanding count as incoming.
     if (grQty === null || Math.abs(grQty) > 0.0001) { closed++; continue; }
@@ -2075,11 +2083,9 @@ function extractOrders(rows, map, fallbackDate) {
       : null;
     noteMaterial(code, pick(r, map, 'desc'), pick(r, map, 'unit'));
     out.push({
-      po: String(pick(r, map, 'po') || '').trim(),
-      item: String(pick(r, map, 'item') || '').trim(),
+      po, item: String(pick(r, map, 'item') || '').trim(),
       code, plant: plantCode(pick(r, map, 'plant')) || PLANT_PROD(),
-      qty, delivery: delivery || null, confirmed,
-      vendor: String(pick(r, map, 'vendor') || '').trim(),
+      qty, delivery: delivery || null, confirmed, vendor,
       unit: String(pick(r, map, 'unit') || '').trim(),
     });
   }
@@ -2090,7 +2096,7 @@ function extractOrders(rows, map, fallbackDate) {
   }
   if (closed) warn.push(closed + ' line(s) already had a goods receipt (or no quantity) and were ignored.');
   if (noDate) warn.push(noDate + ' line(s) have no confirmed delivery date. They count towards \u201con order\u201d but are left out of the arrival timeline.');
-  return { rows: out, warn };
+  return { rows: out, warn, suppliers };
 }
 
 // ═══ SAP PURCHASE-ORDER LIST (ME2M, scope of list ALLES) ════
@@ -2385,9 +2391,10 @@ function netIndex() {
 function resolvedOrders() {
   return memo('resolvedOrders', () => state.orders.map(o => {
     const f = (state.orderFlags || {})[orderKey(o)];
+    const vendor = (state.orderSuppliers || {})[o.po] || o.vendor || '';
     const promised = f && f.delivery ? f.delivery : null;
-    if (!promised) return o.delivery ? { ...o, dateFrom: 'requested' } : o;
-    return { ...o, delivery: promised, requested: o.delivery || null, dateFrom: 'confirmed' };
+    if (!promised) return { ...o, vendor, dateFrom: o.delivery ? 'requested' : undefined };
+    return { ...o, vendor, delivery: promised, requested: o.delivery || null, dateFrom: 'confirmed' };
   }));
 }
 
@@ -2413,7 +2420,8 @@ function onOrderQty(code) {
 // list being replaced by the other source.
 function orderKey(o) { return (o.po || '') + '|' + (o.item || ''); }
 
-function rememberOrderFlags(rows) {
+function rememberOrderFlags(rows, srcKind) {
+  if (srcKind !== 'sheet') return 0;     // the list carries no flags to take
   const flags = { ...(state.orderFlags || {}) };
   let n = 0;
   for (const o of rows) {
@@ -2429,6 +2437,22 @@ function rememberOrderFlags(rows) {
   const live = new Set(rows.map(orderKey).concat(state.orders.map(orderKey)));
   for (const k in flags) if (!live.has(k)) delete flags[k];
   state.orderFlags = flags;
+  return n;
+}
+
+// Who the paper actually comes from. The purchase-order list prints the vendor
+// of the document, which at this site is the one central buying company on
+// every order; the spreadsheet names the mill. A purchase order never carries
+// two supplier names, so remembering one name per order reaches lines the
+// spreadsheet itself does not list.
+function rememberSuppliers(found, srcKind) {
+  if (srcKind !== 'sheet' || !found) return 0;
+  const by = { ...(state.orderSuppliers || {}), ...found };
+  const n = Object.keys(found).length;
+  if (!n) return 0;
+  const live = new Set(Object.keys(found).concat(state.orders.map(o => o.po)));
+  for (const k in by) if (!live.has(k)) delete by[k];
+  state.orderSuppliers = by;
   return n;
 }
 
@@ -3487,7 +3511,21 @@ function renderWarehouse() {
       '<td>' + esc(materialLabel(o.code)) + '</td><td class="num">' + fmt(o.qty, 0) + '</td>' +
       '<td><span class="pill ' + (o.plant === PLANT_WH() ? 'si10' : 'si11') + '">' + esc(o.plant) + '</span></td>' +
       '<td>' + statusPill(o) + '</td>' +
-      '<td class="muted">' + esc(o.vendor || '—') + '</td></tr>')).join('') + '</tbody></table></div>';
+      '<td class="muted">' + esc(o.vendor || '—') + '</td></tr>')).join('') + '</tbody></table></div>' +
+    supplierNote(arrivals.flatMap(a => a.orders));
+}
+
+// The purchase-order list names the buying company on every line; the orders
+// spreadsheet names the mill. Say so where a line is still showing the former,
+// rather than letting one supplier appear to deliver everything.
+function supplierNote(orders) {
+  if (state.ordersSource !== 'list') return '';
+  const by = state.orderSuppliers || {};
+  const n = orders.filter(o => !by[o.po]).length;
+  if (!n) return '';
+  return '<div class="legend-note">' + n + ' of these ' + orders.length + ' line(s) name the buying company ' +
+    'rather than the mill: the purchase-order list prints only the vendor of the document. Import an orders ' +
+    'spreadsheet covering those orders and the names fill in.</div>';
 }
 
 function lineDs(label, data, color, dashed, fill) {
@@ -5258,13 +5296,14 @@ function commit(id) {
     warn = res.warn.slice();
     // Kept before the list is swapped, so the flags of the outgoing list are
     // still available to decide what is worth keeping.
-    const flagged = rememberOrderFlags(res.rows);
+    const srcKind = e.fixed === 'purchaseList' ? 'list' : 'sheet';
+    const flagged = rememberOrderFlags(res.rows, srcKind);
+    rememberSuppliers(res.suppliers, srcKind);
     if (flagged) warn.push(flagged + ' line(s) carried a supplier confirmation flag.');
     undo.orders = state.orders;
     undo.ordersDate = state.ordersDate;
     undo.ordersSource = state.ordersSource;
     skipped = state.orders.length;
-    const srcKind = e.fixed === 'purchaseList' ? 'list' : 'sheet';
     if (ordersAreADowngrade(res.rows, srcKind, e.snapDate)) {
       // The spreadsheet export carries the confirmation flags but cannot date
       // every line; the purchase-order list dates all of them but carries no
@@ -5779,7 +5818,7 @@ function wireSettings() {
     state = { version: 1, materials: {}, stock: {}, movements: [], orders: [], ordersDate: null,
               imports: [], mappings: { stock: {}, movements: {}, orders: {} },
               settings: freshSettings(), migrations: { si10cap: 1 }, calendar: { off: {}, work: {} },
-              orderFlags: {}, plans: {}, actuals: {},
+              orderFlags: {}, orderSuppliers: {}, plans: {}, actuals: {},
               plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {} } };
     invalidate(); saveState(true); boot();
   };
