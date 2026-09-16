@@ -759,6 +759,11 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
   </div>
 
   <div class="card">
+    <div class="card-title">What need not come</div>
+    <div id="balDefer"></div>
+  </div>
+
+  <div class="card">
     <div class="card-title" id="balChartTitle">Projected level by plant</div>
     <div class="chart-box tall"><canvas id="balChart"></canvas></div>
     <div class="legend-note">Solid = the level with the moves below applied. Dashed = as things stand. Flat lines mark each plant's capacity and target.</div>
@@ -933,7 +938,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-16 · 39';
+const BUILD = '2026-09-16 · 40';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -4370,6 +4375,219 @@ function buildBalancePlan() {
            unresolved: overAfter > 0 };
 }
 
+// ═══ ORDERS THAT NEED NOT COME ═════════════════════════════
+// Redirecting and moving change where paper sits; neither changes how much of
+// it there is. When the site as a whole is too full, or a single grade has far
+// more cover than it can use, the only remaining lever is the order book.
+//
+// An order is redundant when the material never falls below its ideal cover
+// without it. Working from the latest arrival backwards means the cheapest
+// changes are proposed first: a date far out is still easy to move, and the
+// stock that is already committed stays committed.
+function buildDeferPlan() {
+  const start = todayISO();
+  const days = Math.max(7, Number(state.settings.balanceDays) || 45);
+  const last = addDays(start, days);
+  const pol = policyDays();
+  const floorDays = pol.ideal || pol.min || 0;
+
+  const out = [];
+  let freed = 0;
+
+  for (const code of allMaterialCodes()) {
+    const usage = avgUsage(code, '30');
+    const orders = (openOrders()[code] || [])
+      .filter(o => o.delivery && o.delivery >= start && o.delivery <= last)
+      .sort((a, b) => a.delivery.localeCompare(b.delivery));
+    if (!orders.length) continue;
+
+    const onHand = stockScope(code, 'both');
+    const floor = usage * floorDays;
+
+    // The level on each day of the window, with a given set of orders dropped.
+    const walk = dropped => {
+      const lvl = [];
+      let q = onHand;
+      for (let i = 0; i <= days; i++) {
+        const d = addDays(start, i);
+        if (i > 0 && consumesOn(d)) q -= usage;
+        for (const o of orders) if (o.delivery === d && !dropped.has(orderKey(o))) q += o.qty;
+        lvl.push({ date: d, q });
+      }
+      return lvl;
+    };
+    // The first day the material would drop to its floor without those orders:
+    // the date the deferred quantity is actually wanted.
+    const firstShort = lvl => {
+      const hit = lvl.find(p => p.q < floor);
+      return hit ? hit.date : null;
+    };
+
+    // Choose what to drop, latest arrival first: a date far out is still easy to
+    // move, and paper close to shipping is not.
+    const dropped = new Set();
+    for (let i = orders.length - 1; i >= 0; i--) {
+      const o = orders[i];
+      const trial = new Set(dropped);
+      trial.add(orderKey(o));
+      const lvl = walk(trial);
+      const short = usage > 0 ? firstShort(lvl) : null;
+      if (usage > 0 && short && short <= o.delivery) continue;   // it is needed by then
+      dropped.add(orderKey(o));
+    }
+    if (!dropped.size) continue;
+
+    // Then place them. Each order's own trial could not know which earlier ones
+    // would also be dropped, so a date chosen during that pass goes stale. This
+    // sweep works on the final set: walk the reduced level forward and, at the
+    // first day it would breach the floor, bring back the latest dropped order
+    // that could legitimately arrive by then. Whatever is never needed is spare.
+    const spare = orders.filter(o => dropped.has(orderKey(o)));
+    const placed = {};                       // orderKey -> the day it is wanted
+    // Fixed before the loop: `spare` shrinks as orders are put back, and a
+    // bound that shrank with it would abandon the sweep half-done, leaving
+    // orders marked spare that the sweep had not finished judging.
+    const bound = spare.length * 2 + 4;
+    let guard = 0;
+    while (usage > 0 && guard++ < bound) {
+      let q = onHand, breach = null;
+      for (let i = 0; i <= days; i++) {
+        const d = addDays(start, i);
+        if (i > 0 && consumesOn(d)) q -= usage;
+        for (const o of orders) {
+          const k = orderKey(o);
+          const at = dropped.has(k) ? placed[k] : o.delivery;
+          if (at === d) q += o.qty;
+        }
+        if (q < floor) { breach = d; break; }
+      }
+      if (!breach) break;
+      // The latest one that could actually be there by then; a deferral can
+      // never pull an order earlier than the date it already has.
+      const pick = spare.filter(o => !placed[orderKey(o)] && o.delivery < breach).pop();
+      if (!pick) {
+        // Nothing droppable covers this day, so the earliest drop was a
+        // mistake — put it back and sweep again.
+        // Nothing spare could legitimately arrive later than this day, so the
+        // grade wants its earliest dropped order exactly when it already comes.
+        // That is not a deferral; put it back untouched and sweep again.
+        const back = spare.find(o => !placed[orderKey(o)]);
+        if (!back) break;
+        dropped.delete(orderKey(back));
+        spare.splice(spare.indexOf(back), 1);
+        continue;
+      }
+      placed[orderKey(pick)] = breach;
+    }
+
+    const finalLvl = (() => {
+      let q = onHand; const lvl = [];
+      for (let i = 0; i <= days; i++) {
+        const d = addDays(start, i);
+        if (i > 0 && consumesOn(d)) q -= usage;
+        for (const o of orders) {
+          const k = orderKey(o);
+          const at = dropped.has(k) ? placed[k] : o.delivery;
+          if (at === d) q += o.qty;
+        }
+        lvl.push(q);
+      }
+      return lvl;
+    })();
+
+    for (const o of orders) {
+      const k = orderKey(o);
+      if (!dropped.has(k)) continue;
+      // A grade with no measured consumption cannot be shown to be surplus — it
+      // may simply be one the line has not run lately. Saying "cancel" on that
+      // basis would be a guess dressed as advice, so it is flagged for a look
+      // instead and left out of the tonnage this claims to free.
+      const action = usage <= 0 ? 'review' : placed[k] ? 'defer' : 'cancel';
+      out.push({
+        code, po: o.po, item: o.item, qty: o.qty, plant: o.plant, vendor: o.vendor,
+        due: o.delivery, wantedOn: placed[k] || null, action,
+        coverAtEnd: usage > 0 ? Math.round(finalLvl[finalLvl.length - 1] / usage) : null,
+        noUsage: usage <= 0,
+      });
+      if (action !== 'review') freed += o.qty;
+    }
+  }
+
+  out.sort((a, b) => (b.qty - a.qty) || a.due.localeCompare(b.due));
+
+  // What dropping them would do to the site as a whole, which is the reason
+  // the tab asks the question in the first place.
+  const bal = safely(buildBalancePlan);
+  const over = bal && bal.combined ? bal.combined.over : 0;
+  return { start, days, last, floorDays, rows: out, freed,
+           siteOver: over, enough: over > 0 ? freed >= over : true };
+}
+
+function renderDefer() {
+  const host = document.getElementById('balDefer');
+  if (!host) return;
+  const d = buildDeferPlan();
+  const t = kg => fmt(kg / 1000, 1);
+
+  if (!state.orders.length) {
+    host.innerHTML = '<div class="small">No open orders imported yet.</div>';
+    return;
+  }
+  if (!d.rows.length) {
+    host.innerHTML = '<div class="banner ok">Every open order is needed: dropping any one of them would take ' +
+      'its material below ' + d.floorDays + ' day(s) of cover inside the next ' + d.days + ' days.</div>';
+    return;
+  }
+
+  const defers = d.rows.filter(r => r.action === 'defer');
+  const cancels = d.rows.filter(r => r.action === 'cancel');
+  const review = d.rows.filter(r => r.action === 'review');
+
+  host.innerHTML =
+    (d.siteOver > 0
+      ? '<div class="banner ' + (d.enough ? 'warn' : 'err') + '">The site peaks <strong>' + t(d.siteOver) +
+        ' t</strong> over its combined capacity. Pushing these back frees <strong>' + t(d.freed) + ' t</strong>' +
+        (d.enough ? ', which is enough to fit.' : ', which is not enough on its own — the rest has to come out of ' +
+          'orders that are genuinely needed, or out of capacity.') + '</div>'
+      : '<div class="banner info">Nothing is over capacity, but <strong>' + t(d.freed) + ' t</strong> across ' +
+        d.rows.length + ' line(s) is not needed inside the next ' + d.days + ' days. Pushing it back frees cash ' +
+        'and floor space.</div>') +
+    '<div class="small" style="margin-bottom:10px">' +
+      (defers.length ? '<strong>' + defers.length + '</strong> to push back' : '') +
+      (defers.length && cancels.length ? ' · ' : '') +
+      (cancels.length ? '<strong>' + cancels.length + '</strong> with no use for the paper at all' : '') +
+      ((defers.length || cancels.length) && review.length ? ' · ' : '') +
+      (review.length ? '<strong>' + review.length + '</strong> on grades with no measured usage, to look at' : '') +
+    '</div>' +
+    '<div class="table-wrap"><table><thead><tr>' +
+    '<th>Order</th><th>Material</th><th class="num">Quantity</th><th>Due</th><th>Do</th><th>Why</th>' +
+    '</tr></thead><tbody>' + d.rows.slice(0, 60).map(r =>
+      '<tr class="' + (r.action === 'cancel' ? 'risk-crit' : r.action === 'defer' ? 'risk-warn' : '') + '">' +
+      '<td class="mono">' + esc(r.po) + (r.item ? '<span class="muted">/' + esc(r.item) + '</span>' : '') + '</td>' +
+      '<td><span class="mono">' + esc(r.code) + '</span> <span class="muted">' +
+        esc((state.materials[r.code] || {}).desc || '') + '</span></td>' +
+      '<td class="num">' + fmt(r.qty, 0) + '</td>' +
+      '<td class="mono">' + esc(r.due) + '</td>' +
+      '<td>' + (r.action === 'defer'
+        ? '<span class="pill warn">push to ' + esc(r.wantedOn) + '</span>'
+        : r.action === 'cancel'
+          ? '<span class="pill crit">cancel</span>'
+          : '<span class="pill">check</span>') + '</td>' +
+      '<td class="small">' + (r.noUsage
+        ? 'no usage recorded for this grade, so it cannot be shown to be surplus'
+        : r.action === 'defer'
+          ? 'without it the grade holds ' + d.floorDays + '+ day(s) of cover until ' + esc(r.wantedOn)
+          : 'still ' + fmt(r.coverAtEnd, 0) + ' day(s) of cover at the end of the window without it') +
+      '</td></tr>').join('') + '</tbody></table></div>' +
+    (d.rows.length > 60 ? '<div class="small" style="margin-top:8px">Showing the largest 60 of ' +
+      d.rows.length + '.</div>' : '') +
+    '<div class="small" style="margin-top:8px">A line is listed only when the grade stays at or above <strong>' +
+      d.floorDays + ' day(s)</strong> of cover — the ideal level set on Production Planning — right through the ' +
+      'next ' + d.days + ' days without it. The latest arrivals are proposed first: a date far out is still easy ' +
+      'to move, and paper already close to shipping is not. “Push to” is the day the grade would actually want ' +
+      'it, so moving it there costs nothing.</div>';
+}
+
 function renderBalance() {
   const prod = PLANT_PROD(), wh = PLANT_WH();
 
@@ -4409,6 +4627,7 @@ function renderBalance() {
 
   const b = buildBalancePlan();
   const t = kg => fmt(kg / 1000, 1);
+  renderDefer();
 
   document.getElementById('balStats').innerHTML = [
     tile(prod + ' now', t(scopeStockFor('__all__', prod)) + '<span class="stat-unit">t</span>',

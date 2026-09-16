@@ -177,6 +177,24 @@ only, the all-time average uses both.
   tonnes have to be pushed back. Moving paper between plants cannot change how
   much of it there is.
 
+  **What need not come** is the third lever, after routing deliveries and moving
+  stock: neither of those changes how much paper there is. An open order is
+  listed when its grade never falls below its **ideal cover** without it, right
+  through the look-ahead window. Candidates are taken latest-arrival first — a
+  date far out is still easy to move, and paper close to shipping is not.
+
+  Choosing what to drop and deciding where it goes are two passes, because a
+  date chosen while judging one order goes stale once earlier ones are dropped
+  too. The second pass walks the reduced level forward and, at the first day it
+  would breach the floor, brings back the latest dropped order that could
+  legitimately arrive by then; an order the sweep finds is wanted exactly when
+  it already comes is put back untouched. Whatever is never needed is spare, and
+  is proposed for cancellation.
+
+  A grade with no measured consumption is flagged **check**, never cancelled —
+  it may simply be one the line has not run lately — and its tonnage is left out
+  of what the tab claims to free.
+
 - **History** — every month's consumption read from its 251/252 postings,
   whether or not a plan was saved for it. Save a plan on the planning tab and
   the month is scored against what was actually used; enter the board actually
