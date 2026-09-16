@@ -933,7 +933,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-16 · 38';
+const BUILD = '2026-09-16 · 39';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -2353,10 +2353,24 @@ function netIndex() {
   });
 }
 
+// The two exports carry two different dates. The spreadsheet's is the date the
+// supplier has confirmed; the purchase-order list's is the date the schedule
+// line asks for. A promise beats a request, so the confirmed date wins wherever
+// one is held and the requested date fills the gaps — which is the only reason
+// the list is imported at all for the lines that are still unacknowledged.
+function resolvedOrders() {
+  return memo('resolvedOrders', () => state.orders.map(o => {
+    const f = (state.orderFlags || {})[orderKey(o)];
+    const promised = f && f.delivery ? f.delivery : null;
+    if (!promised) return o.delivery ? { ...o, dateFrom: 'requested' } : o;
+    return { ...o, delivery: promised, requested: o.delivery || null, dateFrom: 'confirmed' };
+  }));
+}
+
 function openOrders() {
   return memo('openOrders', () => {
     const by = {};
-    for (const o of state.orders) (by[o.code] || (by[o.code] = [])).push(o);
+    for (const o of resolvedOrders()) (by[o.code] || (by[o.code] = [])).push(o);
     for (const c in by) by[c].sort((a, b) =>
       (a.delivery || '9999').localeCompare(b.delivery || '9999'));
     return by;
@@ -2380,7 +2394,9 @@ function rememberOrderFlags(rows) {
   let n = 0;
   for (const o of rows) {
     if (o.confirmed === null || o.confirmed === undefined) continue;
-    flags[orderKey(o)] = { confirmed: !!o.confirmed, asOf: todayISO() };
+    // The date is remembered alongside the flag, because in this export it is
+    // the supplier's own committed date — worth more than the requested one.
+    flags[orderKey(o)] = { confirmed: !!o.confirmed, delivery: o.delivery || null, asOf: todayISO() };
     n++;
   }
   if (!n) return 0;
@@ -2419,7 +2435,7 @@ function ordersAreADowngrade(rows, kind, asOf) {
 // as confirmed, and a page showing no unconfirmed lines should be able to say
 // whether that is good news or missing input.
 function confirmCoverage() {
-  const all = state.orders;
+  const all = resolvedOrders();
   const known = all.filter(o => confirmStatus(o) !== 'unknown');
   return { total: all.length, known: known.length,
            unconfirmed: all.filter(o => confirmStatus(o) === 'unconfirmed').length };
@@ -2441,7 +2457,7 @@ function isUnconfirmedLine(o) { return confirmStatus(o) === 'unconfirmed'; }
 // unacknowledged: the purchase-order list dates lines the supplier has not yet
 // confirmed, and the spreadsheet confirms lines it cannot date.
 function undatedQty(code) {
-  const list = code ? (openOrders()[code] || []) : state.orders;
+  const list = code ? (openOrders()[code] || []) : resolvedOrders();
   return list.filter(o => !o.delivery).reduce((s, o) => s + o.qty, 0);
 }
 // Open orders whose delivery date has already passed. The projection assumes
@@ -2449,11 +2465,11 @@ function undatedQty(code) {
 // material leaning on one is marked rather than quietly counted.
 function overdueQty(code) {
   const t = todayISO();
-  const list = code ? (openOrders()[code] || []) : state.orders;
+  const list = code ? (openOrders()[code] || []) : resolvedOrders();
   return list.filter(o => o.delivery && o.delivery < t).reduce((s, o) => s + o.qty, 0);
 }
 function undatedCount(code) {
-  const list = code ? (openOrders()[code] || []) : state.orders;
+  const list = code ? (openOrders()[code] || []) : resolvedOrders();
   return list.filter(o => !o.delivery).length;
 }
 
@@ -2709,6 +2725,16 @@ function arrivalState(a) {
     if (STATE_RANK[st] < STATE_RANK[worst]) worst = st;
   }
   return worst;
+}
+
+// Which date each arrival is drawn on. Mixing two sources silently would make
+// a chart nobody could reconcile against SAP, so the split is stated.
+function dateSourceNote() {
+  const res = resolvedOrders();
+  const req = res.filter(o => o.dateFrom === 'requested').length;
+  if (!res.length || !req) return '';
+  return '<strong>' + req + ' of ' + res.length + '</strong> line(s) are drawn on the date the purchase ' +
+         'order requested, the supplier not having confirmed one; the rest use the confirmed date. ';
 }
 
 // Seeing no unconfirmed lines means one of two very different things, so the
@@ -3078,7 +3104,7 @@ function renderForecast() {
   document.getElementById('fcLegendNote').innerHTML =
     'Markers are expected arrivals from open purchase orders — hover for order number, quantity and ' +
     'supplier. <strong>Filled</strong> means the supplier has confirmed the delivery, <strong>hollow</strong> ' +
-    'means it is ordered but not yet acknowledged. ' + coverageNote();
+    'means it is ordered but not yet acknowledged. ' + dateSourceNote() + coverageNote();
   statsHost.innerHTML = [
     tile('Current stock', fmt(cur, 0) + (unit ? '<span class="stat-unit">' + esc(unit) + '</span>' : ''),
          PLANT_WH() + ' ' + fmt(currentStock(PLANT_WH())[code] || 0, 0) + ' · ' + PLANT_PROD() + ' ' + fmt(currentStock(PLANT_PROD())[code] || 0, 0)),
@@ -3139,7 +3165,10 @@ function renderForecast() {
         return '<tr><td class="mono">' + esc(o.po) + '</td><td class="mono muted">' + esc(o.item || '—') + '</td>' +
           '<td><span class="pill ' + (o.plant === PLANT_WH() ? 'si10' : 'si11') + '">' + esc(o.plant) + '</span></td>' +
           '<td class="num">' + fmt(o.qty, 0) + '</td>' +
-          '<td class="mono' + (o.delivery ? '' : ' muted') + '">' + esc(o.delivery || 'no date') + '</td>' +
+          '<td class="mono' + (o.delivery ? '' : ' muted') + '"' +
+            (o.dateFrom === 'requested' ? ' title="Requested on the purchase order; the supplier has not confirmed a date"' : '') +
+            '>' + esc(o.delivery || 'no date') +
+            (o.dateFrom === 'requested' ? ' <span class="muted">req</span>' : '') + '</td>' +
           '<td class="mono ' + (dd !== null && dd < 0 ? '' : 'muted') + '" style="' + (dd !== null && dd < 0 ? 'color:var(--crit-ink)' : '') + '">' +
             (dd === null ? '—' : dd < 0 ? Math.abs(dd) + ' d overdue' : dd === 0 ? 'today' : 'in ' + dd + ' d') + '</td>' +
           '<td>' + statusPill(o) + '</td>' +
@@ -3383,7 +3412,7 @@ function renderWarehouse() {
       : 'Every open order line has a delivery date, so nothing is left out. ') +
     'A <strong>filled</strong> marker is a delivery the supplier has confirmed; a <strong>hollow</strong> one ' +
     'is ordered but not yet acknowledged. A day carrying both takes the weaker of the two — the tooltip ' +
-    'breaks it down line by line. ' + coverageNote();
+    'breaks it down line by line. ' + dateSourceNote() + coverageNote();
 
   document.getElementById('whChartTitle').textContent =
     (code === '__all__' ? 'All materials' : materialLabel(code)) + ' · ' + mk;
@@ -4117,7 +4146,7 @@ function renderOverviewTodo(f) {
       text: fmt(undatedQty(), 0) + ' kg counts as on order but sits on no timeline, so every projection ' +
             'is short by it until a supplier confirms.', page: 'materials', link: 'See the materials' });
   }
-  const overdueLines = state.orders.filter(o => o.delivery && o.delivery < todayISO()).length;
+  const overdueLines = resolvedOrders().filter(o => o.delivery && o.delivery < todayISO()).length;
   if (overdueLines) {
     items.push({ lvl: 'warn', title: overdueLines + ' order line(s) are past their delivery date',
       text: fmt(overdueQty(), 0) + ' kg is assumed to arrive today, which is usually right and occasionally very wrong.',
@@ -5083,11 +5112,14 @@ function renderOrderState() {
     return;
   }
   const c = confirmCoverage();
-  const dated = state.orders.filter(o => o.delivery).length;
+  const dated = resolvedOrders().filter(o => o.delivery).length;
   const src = state.ordersSource === 'list' ? 'SAP purchase-order list'
             : state.ordersSource === 'sheet' ? 'orders spreadsheet' : 'an earlier import';
   const flags = Object.keys(state.orderFlags || {}).length;
   const lastSheet = state.imports.find(i => i.kind === 'orders' && i.source !== 'list');
+  const res = resolvedOrders();
+  const byConfirmedDate = res.filter(o => o.dateFrom === 'confirmed').length;
+  const byRequestedDate = res.filter(o => o.dateFrom === 'requested').length;
   const mapped = (state.mappings.orders || {}).confirmed;
 
   const row = (k, v, cls) => '<div><dt>' + esc(k) + '</dt><dd' + (cls ? ' class="' + cls + '"' : '') +
@@ -5098,7 +5130,7 @@ function renderOrderState() {
       row('As of', esc(state.ordersDate || '—'), '') +
       row('Open lines', fmt(state.orders.length, 0) +
           ' <small>' + fmt(dated, 0) + ' with a delivery date</small>') +
-      row('Confirmed', fmt(state.orders.filter(o => confirmStatus(o) === 'confirmed').length, 0)) +
+      row('Confirmed', fmt(resolvedOrders().filter(o => confirmStatus(o) === 'confirmed').length, 0)) +
       row('Not confirmed', fmt(c.unconfirmed, 0)) +
       row('Unknown', fmt(c.total - c.known, 0)) +
     '</dl>' +
@@ -5116,9 +5148,11 @@ function renderOrderState() {
         ? '<div class="banner info">' + fmt(c.total - c.known, 0) + ' line(s) are newer than the last orders ' +
           'spreadsheet, so their status is not yet known. Export both files on the same day and they agree.</div>'
         : '<div class="banner ok">Every open line has a known confirmation status.</div>') +
-    '<div class="small" style="margin-top:10px">' + fmt(flags, 0) + ' confirmation flag(s) held, keyed by ' +
-      'purchase order and item. They are kept apart from the list so that importing the other export ' +
-      'cannot lose them.' +
+    '<div class="small" style="margin-top:10px">' +
+      fmt(byConfirmedDate, 0) + ' line(s) use the date the supplier confirmed; ' +
+      fmt(byRequestedDate, 0) + ' fall back to the date the purchase order requested. ' +
+      fmt(flags, 0) + ' confirmation flag(s) held, keyed by purchase order and item, kept apart from the ' +
+      'list so importing the other export cannot lose them.' +
       (mapped ? ' Confirmation column: <code>' + esc(mapped) + '</code>.' : '') + '</div>';
 }
 
@@ -5185,7 +5219,7 @@ function calendarYears() {
   ys.add(now); ys.add(now + 1);
   const first = firstMovementDate(), last = lastMovementDate();
   if (first) for (let y = Number(first.slice(0, 4)); y <= Number((last || first).slice(0, 4)); y++) ys.add(y);
-  for (const o of state.orders) if (o.delivery) ys.add(Number(o.delivery.slice(0, 4)));
+  for (const o of resolvedOrders()) if (o.delivery) ys.add(Number(o.delivery.slice(0, 4)));
   return [...ys].sort((a, b) => a - b);
 }
 

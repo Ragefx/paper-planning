@@ -259,6 +259,19 @@ A line's own flag always beats the remembered map, since it came from the same
 file as the quantity. Nothing is ever assumed confirmed: a line with no flag
 reads *unknown*.
 
+**The confirmed date wins.** The two exports carry two different dates: the
+spreadsheet's is the date the supplier has *confirmed*, the purchase-order
+list's is the date the schedule line *requests*. A promise beats a request, so
+each line is drawn on its confirmed date wherever one is held, and falls back to
+the requested date otherwise — which is the whole reason the list is imported
+for lines nobody has acknowledged yet. The two can be weeks apart, and drawing
+the request when a later promise exists puts paper on site before it arrives.
+
+Resolution is a view, not a rewrite: the stored order list keeps exactly what
+its file said, and every consumer reads the merged version. Both tabs and the
+Import card state how many lines use which date, and the forecast table marks a
+fallback date `req`.
+
 **Import order does not matter.** The spreadsheet cannot date every line and the
 list cannot flag any, so letting the spreadsheet replace a current list would
 trade real delivery dates for nothing — and silently, because undated lines
