@@ -218,6 +218,29 @@ heuristics, silently; Firefox by asking), so the result is displayed rather than
 relied on, and there is an ask-again button. Clearing site data by hand erases
 the database whatever the verdict, which is what the JSON backup is for.
 
+## Open orders: two sources
+The spreadsheet export (ME2M at item level) has no delivery date, because the
+date lives on the schedule line one level down. The app therefore also reads the
+**SAP purchase-order list** — ME2M with scope of list `ALLES`, saved through
+*System → List → Save → Local File* as a `.txt`. That is a printed report rather
+than a table, so it is recognised by its layout and parsed by shape; it needs no
+column mapping. Drop it on the Import page like any other file.
+
+It carries, on every line, what the spreadsheet cannot:
+
+- the **schedule-line delivery date**, present whether or not the supplier has
+  confirmed, so nothing has to be estimated from a lead time;
+- **Still to be delivered**, the true outstanding quantity, which replaces the
+  GR = 0 rule and so finally accounts for part-delivered lines;
+- the PO creation date, vendor, and material group.
+
+Reels are not cut to order, so most "part delivered" lines are simply a delivery
+that closed a few percent light. A remainder under the **short-delivery
+tolerance** (Settings, default 30%) is treated as complete rather than as paper
+still to come; above it the line stays open at its outstanding quantity. On a
+real export that separates cleanly: 58 residual lines averaging under 20% of
+their order, and 3 genuine partials at 33%, 50% and 65%.
+
 ## The work calendar
 Mon–Fri is only most of the answer, so **Settings → Holidays & shutdowns** holds
 the rest. Slovenian work-free days are **computed** rather than listed — Easter

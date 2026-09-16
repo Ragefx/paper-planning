@@ -813,9 +813,9 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
   <div class="card">
     <div class="card-title">Upload</div>
     <div class="drop" id="dropZone">
-      <div class="drop-title">Drop .xlsx / .xls / .csv files here</div>
+      <div class="drop-title">Drop .xlsx / .xls / .csv / .txt files here</div>
       <div class="small">or click to choose — several files at once is fine, each is classified on its own</div>
-      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" multiple hidden>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv,.txt" multiple hidden>
     </div>
     <div id="importStaged"></div>
   </div>
@@ -860,8 +860,15 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
       <label class="fld">Ignore usage spikes above (× avg)
         <input type="number" id="setSpike" min="0" step="0.5" style="width:110px" placeholder="0 = off">
       </label>
+      <label class="fld">Short-delivery tolerance (%)
+        <input type="number" id="setTol" min="0" max="100" step="5" style="width:120px">
+      </label>
     </div>
     <div class="small" style="margin-top:10px">Usage rates are per day the machines run, and projections draw no stock on the days they do not. Consumption posted at a weekend still counts towards the total — it is only the divisor that changes.</div>
+    <div class="small" style="margin-top:10px">Reels are not cut to order, so a part-delivered purchase-order
+      line is usually a delivery that closed a few percent light. Where the remainder is under the tolerance it
+      is treated as complete rather than as paper still to come; above it, the line stays open at its
+      outstanding quantity. Only the SAP purchase-order list carries the figures this needs.</div>
     <div class="small" style="margin-top:10px">SAP exports normally carry signed quantities (receipts positive, issues negative). Auto-detect trusts those signs when it finds negatives, and otherwise applies the sign implied by the movement type.</div>
   </div>
   <div class="card">
@@ -932,7 +939,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-16 · 30';
+const BUILD = '2026-09-16 · 31';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -971,6 +978,9 @@ const DEFAULTS = {
   capacity: { SI11: 2600, SI10: 1650 },
   target:   { SI11: 2100, SI10: 1320 },
   balanceDays: 45,
+  // A part-delivered line whose remainder is under this share of the order is
+  // reel weight variance, not paper still to come.
+  receiptTolerance: 0.30,
   whUnconfirmed: false,     // show orders the supplier has not acknowledged
   truckLoad: 24000,         // kg on one lorry between the plants
 };
@@ -2065,6 +2075,128 @@ function extractOrders(rows, map, fallbackDate) {
   if (closed) warn.push(closed + ' line(s) already had a goods receipt (or no quantity) and were ignored.');
   if (noDate) warn.push(noDate + ' line(s) have no confirmed delivery date. They count towards \u201con order\u201d but are left out of the arrival timeline.');
   return { rows: out, warn };
+}
+
+// ═══ SAP PURCHASE-ORDER LIST (ME2M, scope of list ALLES) ════
+// The spreadsheet export is item-level and therefore has no delivery date: the
+// date lives on the schedule line, one level down. This classic list does carry
+// it, on every line, along with "Still to be delivered" — the true open
+// quantity, which removes the guesswork the GR = 0 rule needed.
+//
+// It is a fixed-format printed list rather than a table, so it is parsed by
+// shape. Every pattern below is anchored to the leading pipe to keep it from
+// matching the change-log and goods-receipt blocks that follow each item.
+const PL = {
+  head:  /^\|(\d{8,12}) (\S{1,4})\s+(\d+)\s+(.{1,45}?)\s{2,}(\S+)\s+(\d{2}\.\d{2}\.\d{4})\s*\|/,
+  item:  /^\|\s?(\d{4,6})\s+(\S+)\s+(.*?)\s{2,}(\S+)?\s*\|$/,
+  plant: /^\|(?:\s*[A-Z])*\s+([A-Z]{2}\d{2})\s+(\d+)\s+([\d.,]+)\s+(\S+)\s+([\d.,]+)\s+(\S+)/,
+  sched: /^\|\s+([A-Z])\s(\d{2}\.\d{2}\.\d{4})\s+([\d.,]+)\s+(\S+)/,
+  total: /^\|\s+(Total goods receipts|Still to be delivered)\s+([\d.,-]+)\s+(\S+)/,
+};
+
+function looksLikePurchaseList(text) {
+  const head = text.slice(0, 4000);
+  return /\|\s*PO\s+Type\s+Vendor/.test(head) && /SL\s+Del\. Date/.test(head);
+}
+
+// The list prints European numbers — 23.000 is twenty-three thousand and
+// 694,00 is six hundred and ninety-four. Reading them as JS numbers would be
+// off by three orders of magnitude, so they are parsed explicitly.
+function euNum(s) {
+  if (s === undefined || s === null) return null;
+  let t = String(s).trim().replace(/\s/g, '');
+  if (!t || t === '-') return null;
+  const neg = /^-|-$/.test(t);
+  t = t.replace(/-/g, '').replace(/\./g, '').replace(',', '.');
+  const n = parseFloat(t);
+  return isNaN(n) ? null : (neg ? -n : n);
+}
+function euDate(s) {
+  const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(String(s).trim());
+  return m ? m[3] + '-' + m[2] + '-' + m[1] : null;
+}
+
+function parsePurchaseList(text) {
+  const lines = text.split(/\r?\n/);
+  const items = [];
+  let po = null, vendor = null, vendorName = null, orderDate = null, cur = null;
+  const flush = () => { if (cur && cur.item) items.push(cur); cur = null; };
+
+  for (const raw of lines) {
+    const l = raw.replace(/\s+$/, '');
+    let m;
+    if ((m = PL.head.exec(l))) {
+      flush();
+      po = m[1]; vendor = m[3]; vendorName = m[4].trim(); orderDate = euDate(m[6]);
+      continue;
+    }
+    // "Doc. Header 4500157425" and "Item 00010" repeat inside the change log and
+    // would otherwise open a second, empty copy of an item already read.
+    if (/^\|(Doc\. Header|Item\s)/.test(l)) continue;
+    if ((m = PL.item.exec(l))) {
+      flush();
+      cur = { po, item: String(Number(m[1])), code: matCode(m[2]), desc: (m[3] || '').trim(),
+              vendor: vendorName || vendor || '', orderDate, plant: null,
+              ordered: null, unit: '', delivery: null, gr: 0, open: null };
+      continue;
+    }
+    if (!cur) continue;
+    if ((m = PL.plant.exec(l))) {
+      cur.plant = plantCode(m[1]); cur.ordered = euNum(m[3]); cur.unit = m[4];
+      continue;
+    }
+    if ((m = PL.sched.exec(l))) {
+      // Only the earliest schedule line matters: it is when the next quantity
+      // is due. Items here carry one, but the format permits several.
+      const d = euDate(m[2]);
+      if (d && (!cur.delivery || d < cur.delivery)) cur.delivery = d;
+      continue;
+    }
+    if ((m = PL.total.exec(l))) {
+      const v = euNum(m[2]) || 0;
+      if (m[1] === 'Total goods receipts') cur.gr = v; else cur.open = v;
+      continue;
+    }
+  }
+  flush();
+  return items;
+}
+
+// Reels are not cut to order, so a "part delivered" line is usually a delivery
+// that closed a few percent light. Treating that remainder as still incoming
+// invents paper that will never arrive. Only a remainder big enough to be a
+// real outstanding shipment counts.
+function purchaseListOrders(text) {
+  const items = parsePurchaseList(text);
+  const tol = Math.min(1, Math.max(0, Number(state.settings.receiptTolerance)));
+  const rows = [];
+  let closed = 0, residual = 0, residualKg = 0, partial = 0, noDate = 0, noPlant = 0;
+
+  for (const it of items) {
+    if (!it.code || !it.ordered) continue;
+    const open = it.open === null ? it.ordered : it.open;
+    if (open <= 0) { closed++; continue; }
+    if (it.gr > 0) {
+      if (open / it.ordered < tol) { residual++; residualKg += open; continue; }
+      partial++;
+    }
+    if (!it.delivery) noDate++;
+    if (!it.plant) noPlant++;
+    noteMaterial(it.code, it.desc, it.unit);
+    rows.push({ po: it.po || '', item: it.item, code: it.code,
+                plant: it.plant || PLANT_PROD(), qty: open, delivery: it.delivery || null,
+                vendor: it.vendor, unit: it.unit, confirmed: null, orderDate: it.orderDate || null });
+  }
+
+  const warn = [];
+  warn.push(items.length + ' purchase-order item(s) read; ' + rows.length + ' still open.');
+  if (closed) warn.push(closed + ' line(s) fully delivered and ignored.');
+  if (residual) warn.push(residual + ' part-delivered line(s) were treated as complete — ' +
+    fmt(residualKg, 0) + ' kg of remainder below the ' + Math.round(tol * 100) +
+    '% tolerance, which is reel weight variance rather than an outstanding delivery.');
+  if (partial) warn.push(partial + ' genuinely part-delivered line(s) kept, at their outstanding quantity.');
+  if (noDate) warn.push(noDate + ' open line(s) still have no delivery date.');
+  return { rows, warn };
 }
 
 function movementKey(m) {
@@ -4515,7 +4647,8 @@ function savedMapFor(kind, headers) {
   for (const k in auto) if (!usable[k]) usable[k] = auto[k];
   return usable;
 }
-function missingRequired(kind, map) {
+function missingRequired(kind, map, entry) {
+  if (entry && entry.fixed) return [];        // parsed by shape, not by column
   return SCHEMA[kind].fields.filter(f => f.req && !map[f.k]).map(f => f.label);
 }
 
@@ -4526,7 +4659,24 @@ async function handleFiles(fileList) {
     try {
       const buf = await file.arrayBuffer();
       const hash = await sha256(buf);
-      const wb = readWorkbook(new Uint8Array(buf), file.name);
+      const bytes = new Uint8Array(buf);
+      const text = looksLikeText(bytes, file.name) ? decodeText(bytes) : '';
+      if (text && looksLikePurchaseList(text)) {
+        // A printed list, not a table: it needs no column mapping, so it skips
+        // the whole mapping path and arrives already extracted.
+        const res = purchaseListOrders(text);
+        staged.push({
+          id: 'e' + Date.now() + Math.random(),
+          filename: file.name, hash, sheet: 'SAP purchase-order list',
+          headers: [], rows: [], kind: 'orders', confident: true, map: {},
+          fixed: 'purchaseList', parsed: res,
+          snapDate: todayISO(),
+          dupFile: state.imports.some(i => i.hash === hash),
+          showMap: false,
+        });
+        continue;
+      }
+      const wb = readWorkbook(bytes, file.name);
       if (!wb || !wb.rows.length) {
         entry = { id: 'e' + Date.now() + Math.random(), filename: file.name, error: 'No data rows found in this file.' };
       } else {
@@ -4559,11 +4709,12 @@ function renderStaged() {
       return '<div class="banner err"><strong>' + esc(e.filename) + '</strong> — ' + esc(e.error) +
         ' <button class="btn" data-discard="' + e.id + '" style="margin-left:8px">Discard</button></div>';
     }
-    const miss = missingRequired(e.kind, e.map);
+    const miss = missingRequired(e.kind, e.map, e);
     const preview = previewCounts(e);
     let head = '<div class="row" style="margin-bottom:8px">' +
       '<strong class="mono">' + esc(e.filename) + '</strong>' +
-      '<span class="muted small">' + e.rows.length + ' rows · sheet “' + esc(e.sheet) + '”</span>' +
+      '<span class="muted small">' + (e.fixed ? e.parsed.rows.length + ' open line(s) · ' + esc(e.sheet)
+                                                 : e.rows.length + ' rows · sheet “' + esc(e.sheet) + '”') + '</span>' +
       '<div class="spacer"></div>' +
       '<label class="fld">Type<select data-kind="' + e.id + '">' +
         KINDS.map(k => '<option value="' + k + '"' + (k === e.kind ? ' selected' : '') + '>' + SCHEMA[k].label + '</option>').join('') +
@@ -4580,7 +4731,10 @@ function renderStaged() {
     if (miss.length) notes += '<div class="banner err">Cannot import yet — unmapped required column(s): <strong>' + esc(miss.join(', ')) + '</strong>. Set them in the mapping below.</div>';
     if (preview) notes += '<div class="banner ' + (preview.newRows ? 'ok' : 'info') + '">' + preview.text + '</div>';
 
-    const mapUI = '<div style="margin-top:6px">' +
+    const mapUI = e.fixed
+      ? '<div class="small" style="margin-top:6px">Read as a <strong>SAP purchase-order list</strong> — a printed ' +
+        'report rather than a table, so it is parsed by its layout and needs no column mapping.</div>'
+      : '<div style="margin-top:6px">' +
       '<button class="btn" data-togglemap="' + e.id + '">' + (e.showMap ? 'Hide' : 'Edit') + ' column mapping</button>' +
       (e.showMap ? '<div class="map-grid" style="margin-top:10px">' + SCHEMA[e.kind].fields.map(f =>
         '<div class="map-row"><span class="fname">' + esc(f.label) + (f.req ? ' <i>*</i>' : '') + '</span>' +
@@ -4627,7 +4781,7 @@ function renderStaged() {
 
 // A dry run so the operator sees what a commit will actually change.
 function previewCounts(e) {
-  if (missingRequired(e.kind, e.map).length) return null;
+  if (missingRequired(e.kind, e.map, e).length) return null;
   const snapshot = JSON.stringify(state.materials);        // extract() registers materials; undo that for a preview
   try {
     if (e.kind === 'movements') {
@@ -4653,9 +4807,15 @@ function previewCounts(e) {
       return { newRows: rows.length, text: rows.length + ' stock line(s) for ' + plants.join(', ') +
         ' on ' + dates.join(', ') + '. Any existing snapshot for those dates is replaced.' };
     }
-    const { rows } = extractOrders(e.rows, e.map, e.snapDate);
-    return { newRows: rows.length, text: rows.length + ' open order line(s) kept (GR quantity 0). ' +
-      'The open-order list is replaced by this file.' };
+    const { rows, warn } = e.fixed ? e.parsed : extractOrders(e.rows, e.map, e.snapDate);
+    const dated = rows.filter(r => r.delivery).length;
+    // Replacing the list is the whole point, but it is also how a mis-filtered
+    // export quietly deletes real orders, so say what goes as well as what comes.
+    const going = state.orders.length;
+    return { newRows: rows.length,
+      text: rows.length + ' open order line(s), ' + dated + ' with a delivery date. ' +
+        (going ? 'The ' + going + ' line(s) held now are replaced by this file. ' : '') +
+        (e.fixed ? warn.join(' ') : 'Lines are kept where the GR quantity is 0.') };
   } catch (err) {
     return { newRows: 0, text: 'Could not read this file with the current mapping: ' + String(err && err.message || err) };
   } finally {
@@ -4666,7 +4826,7 @@ function previewCounts(e) {
 function commit(id) {
   const e = staged.find(x => x.id === id);
   if (!e || e.error) return;
-  const miss = missingRequired(e.kind, e.map);
+  const miss = missingRequired(e.kind, e.map, e);
   if (miss.length) return;
 
   let added = 0, skipped = 0, warn = [];
@@ -4708,7 +4868,7 @@ function commit(id) {
       }
     }
   } else {
-    const res = extractOrders(e.rows, e.map, e.snapDate);
+    const res = e.fixed ? e.parsed : extractOrders(e.rows, e.map, e.snapDate);
     warn = res.warn;
     undo.orders = state.orders;
     undo.ordersDate = state.ordersDate;
@@ -5055,6 +5215,7 @@ function renderSettings() {
   document.getElementById('setSign').value = s.signMode;
   document.getElementById('setSpike').value = s.spikeFactor || 0;
   document.getElementById('setUsageDays').value = s.usageDays || 'work';
+  document.getElementById('setTol').value = Math.round((s.receiptTolerance ?? 0.30) * 100);
 
   // Mapping is header-name based, so it can be reviewed without a file open.
   document.getElementById('mapEditor').innerHTML = KINDS.map(k => {
@@ -5109,6 +5270,8 @@ function wireSettings() {
   bind('setSign', 'signMode');
   bind('setSpike', 'spikeFactor', Number);
   bind('setUsageDays', 'usageDays');
+  // stored as a fraction, typed as a percentage
+  bind('setTol', 'receiptTolerance', v => Math.min(1, Math.max(0, (Number(v) || 0) / 100)));
 
   document.getElementById('btnExport').onclick = () => {
     download('paperplan-backup-' + todayISO() + '.json', JSON.stringify(state, null, 1));
