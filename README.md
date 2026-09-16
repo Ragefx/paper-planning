@@ -249,6 +249,12 @@ no flag held for that line. A day mixing the two takes the weaker of them —
 what matters at a glance is that some of the quantity is not promised — and the
 tooltip marks every line with ✓, ○ or · and totals the unconfirmed share.
 
+Hovering a day gives the split in words as well as colour — the day's total,
+then a line per state present with its quantity and order count, then the
+largest few lines each marked ✓, ○ or ·. The state lines always sum to the
+day total. Both order tables under the charts carry a **Status** column saying
+the same thing, so the information is never colour alone.
+
 A line's own flag always beats the remembered map, since it came from the same
 file as the quantity. Nothing is ever assumed confirmed: a line with no flag
 reads *unknown*.

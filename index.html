@@ -931,7 +931,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-16 · 33';
+const BUILD = '2026-09-16 · 34';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -2653,9 +2653,9 @@ function zeroLine(color) {
 // and the tooltip breaks the day down line by line. Status colours are used
 // here rather than the series hue, because this is a state, not a category.
 const ARRIVAL_STATES = {
-  confirmed:   { label: 'Delivery confirmed', mark: '--ok',     hollow: false },
-  unconfirmed: { label: 'Ordered, not confirmed', mark: '--warn', hollow: true },
-  unknown:     { label: 'Confirmation unknown', mark: '--text-2', hollow: true },
+  confirmed:   { label: 'Delivery confirmed',     tip: 'Confirmed',     mark: '--ok',     hollow: false },
+  unconfirmed: { label: 'Ordered, not confirmed', tip: 'Not confirmed', mark: '--warn',   hollow: true },
+  unknown:     { label: 'Confirmation unknown',   tip: 'Unknown',       mark: '--text-2', hollow: true },
 };
 const STATE_RANK = { unconfirmed: 0, unknown: 1, confirmed: 2 };
 
@@ -2666,6 +2666,14 @@ function arrivalState(a) {
     if (STATE_RANK[st] < STATE_RANK[worst]) worst = st;
   }
   return worst;
+}
+
+// The same three states the markers use, as a table cell. Reserved status
+// colours, and never colour alone: each carries its word.
+const STATE_PILL = { confirmed: 'ok', unconfirmed: 'warn', unknown: '' };
+function statusPill(o) {
+  const st = confirmStatus(o);
+  return '<span class="pill ' + STATE_PILL[st] + '">' + ARRIVAL_STATES[st].tip + '</span>';
 }
 
 // One dataset per state actually present, so each gets its own legend entry and
@@ -2705,11 +2713,15 @@ function arrivalTooltip(byDate, labels) {
       const a = src[labels[ctx.dataIndex]];
       if (!a) return null;
       const unit = a.orders.length && unitOf(a.orders[0].code) ? ' ' + unitOf(a.orders[0].code) : '';
-      const pending = a.orders.filter(o => confirmStatus(o) === 'unconfirmed');
       const lines = ['Arriving: ' + fmt(a.qty) + unit + ' · ' + a.orders.length + ' order(s)'];
-      if (pending.length) {
-        lines.push('Not confirmed: ' + fmt(pending.reduce((s, o) => s + o.qty, 0)) + unit +
-                   ' · ' + pending.length + ' of ' + a.orders.length);
+      // How much of the day is actually promised is the question the marker
+      // colour can only answer for the day as a whole, so the split is spelled
+      // out — one line per state present, and none for the states that are not.
+      for (const st of Object.keys(ARRIVAL_STATES)) {
+        const part = a.orders.filter(o => confirmStatus(o) === st);
+        if (!part.length) continue;
+        lines.push(STATE_MARK[st] + ' ' + ARRIVAL_STATES[st].tip + ': ' +
+                   fmt(part.reduce((s, o) => s + o.qty, 0)) + unit + ' · ' + part.length + ' order(s)');
       }
       const sorted = a.orders.slice().sort((x, y) => y.qty - x.qty);
       for (const o of sorted.slice(0, TOOLTIP_ORDERS)) {
@@ -3055,15 +3067,16 @@ function renderForecast() {
     ordersHost.innerHTML = '<div class="small">No open purchase orders for this material.</div>';
   } else {
     ordersHost.innerHTML = '<div class="table-wrap"><table><thead><tr>' +
-      '<th>Order</th><th>Item</th><th>Plant</th><th class="num">Quantity</th><th>Delivery</th><th>Days out</th><th>Supplier</th>' +
+      '<th>Order</th><th>Item</th><th>Plant</th><th class="num">Quantity</th><th>Delivery</th><th>Days out</th><th>Status</th><th>Supplier</th>' +
       '</tr></thead><tbody>' + list.map(o => {
         const dd = o.delivery ? daysBetween(todayISO(), o.delivery) : null;
         return '<tr><td class="mono">' + esc(o.po) + '</td><td class="mono muted">' + esc(o.item || '—') + '</td>' +
           '<td><span class="pill ' + (o.plant === PLANT_WH() ? 'si10' : 'si11') + '">' + esc(o.plant) + '</span></td>' +
           '<td class="num">' + fmt(o.qty, 0) + '</td>' +
-          '<td class="mono' + (o.delivery ? '' : ' muted') + '">' + esc(o.delivery || 'not confirmed') + '</td>' +
+          '<td class="mono' + (o.delivery ? '' : ' muted') + '">' + esc(o.delivery || 'no date') + '</td>' +
           '<td class="mono ' + (dd !== null && dd < 0 ? '' : 'muted') + '" style="' + (dd !== null && dd < 0 ? 'color:var(--crit-ink)' : '') + '">' +
             (dd === null ? '—' : dd < 0 ? Math.abs(dd) + ' d overdue' : dd === 0 ? 'today' : 'in ' + dd + ' d') + '</td>' +
+          '<td>' + statusPill(o) + '</td>' +
           '<td class="muted">' + esc(o.vendor || '—') + '</td></tr>';
       }).join('') + '</tbody></table></div>';
   }
@@ -3344,11 +3357,12 @@ function renderWarehouse() {
   const host = document.getElementById('whArrivals');
   if (!arrivals.length) host.innerHTML = '<div class="small">No open orders due in ' + mk + '.</div>';
   else host.innerHTML = '<div class="table-wrap"><table><thead><tr>' +
-    '<th>Date</th><th>Order</th><th>Material</th><th class="num">Quantity</th><th>Plant</th><th>Supplier</th>' +
+    '<th>Date</th><th>Order</th><th>Material</th><th class="num">Quantity</th><th>Plant</th><th>Status</th><th>Supplier</th>' +
     '</tr></thead><tbody>' + arrivals.flatMap(a => a.orders.map(o =>
       '<tr><td class="mono">' + esc(a.date) + '</td><td class="mono">' + esc(o.po) + (o.item ? '<span class="muted">/' + esc(o.item) + '</span>' : '') + '</td>' +
       '<td>' + esc(materialLabel(o.code)) + '</td><td class="num">' + fmt(o.qty, 0) + '</td>' +
       '<td><span class="pill ' + (o.plant === PLANT_WH() ? 'si10' : 'si11') + '">' + esc(o.plant) + '</span></td>' +
+      '<td>' + statusPill(o) + '</td>' +
       '<td class="muted">' + esc(o.vendor || '—') + '</td></tr>')).join('') + '</tbody></table></div>';
 }
 
