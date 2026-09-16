@@ -810,6 +810,10 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
     <div id="importStaged"></div>
   </div>
   <div class="card">
+    <div class="card-title">Open orders held</div>
+    <div id="orderState"></div>
+  </div>
+  <div class="card">
     <div class="card-title">Import history</div>
     <div id="importLog"></div>
   </div>
@@ -929,7 +933,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-16 · 36';
+const BUILD = '2026-09-16 · 38';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -2066,6 +2070,11 @@ function extractOrders(rows, map, fallbackDate) {
       vendor: String(pick(r, map, 'vendor') || '').trim(),
       unit: String(pick(r, map, 'unit') || '').trim(),
     });
+  }
+  if (!map.confirmed) {
+    warn.push('No confirmation column is mapped, so no line can be told confirmed from unconfirmed — ' +
+      'every one reads as unknown. Map "Confirmations Exist" (or your export\'s equivalent) under ' +
+      'Edit column mapping.');
   }
   if (closed) warn.push(closed + ' line(s) already had a goods receipt (or no quantity) and were ignored.');
   if (noDate) warn.push(noDate + ' line(s) have no confirmed delivery date. They count towards \u201con order\u201d but are left out of the arrival timeline.');
@@ -4904,7 +4913,7 @@ function previewCounts(e) {
             ? 'The ' + going + ' line(s) held now come from the purchase-order list, which dates every line, ' +
               'so they will be kept and only the confirmation flags taken from this file. '
             : 'The ' + going + ' line(s) held now are replaced by this file. ') +
-        (e.fixed ? warn.join(' ') : 'Lines are kept where the GR quantity is 0.') };
+        (e.fixed ? '' : 'Lines are kept where the GR quantity is 0. ') + warn.join(' ') };
   } catch (err) {
     return { newRows: 0, text: 'Could not read this file with the current mapping: ' + String(err && err.message || err) };
   } finally {
@@ -4989,7 +4998,9 @@ function commit(id) {
     }
   }
 
-  state.mappings[e.kind] = { ...e.map };
+  // A fixed-format file carries no column mapping; writing its empty one over
+  // the saved mapping would throw away the spreadsheet's, overrides included.
+  if (!e.fixed) state.mappings[e.kind] = { ...e.map };
   // The rows are in, so the cached first/last dates are stale — drop them
   // before asking what the database now covers, or the span recorded with
   // this import is the one from before it.
@@ -4998,6 +5009,7 @@ function commit(id) {
   state.imports.unshift({
     id: e.id, ts: Date.now(), kind: e.kind, filename: e.filename, hash: e.hash,
     rows: e.rows.length, added, skipped, warn, date: e.kind === 'movements' ? null : e.snapDate,
+    source: e.fixed === 'purchaseList' ? 'list' : 'sheet',
     span, undo,
   });
   // Undo payloads are only useful for the most recent imports and are much
@@ -5060,6 +5072,56 @@ function undoLastImport() {
   notify('Import undone. Materials it introduced are left in place and simply read zero.', 'ok');
 }
 
+// Everything the open-order list is made of, in one place. Two exports feed it
+// and neither is complete on its own, so when the charts look wrong the first
+// question is always which parts actually arrived — and that was invisible.
+function renderOrderState() {
+  const el = document.getElementById('orderState');
+  if (!el) return;
+  if (!state.orders.length) {
+    el.innerHTML = '<div class="small">No open orders imported yet.</div>';
+    return;
+  }
+  const c = confirmCoverage();
+  const dated = state.orders.filter(o => o.delivery).length;
+  const src = state.ordersSource === 'list' ? 'SAP purchase-order list'
+            : state.ordersSource === 'sheet' ? 'orders spreadsheet' : 'an earlier import';
+  const flags = Object.keys(state.orderFlags || {}).length;
+  const lastSheet = state.imports.find(i => i.kind === 'orders' && i.source !== 'list');
+  const mapped = (state.mappings.orders || {}).confirmed;
+
+  const row = (k, v, cls) => '<div><dt>' + esc(k) + '</dt><dd' + (cls ? ' class="' + cls + '"' : '') +
+    '>' + v + '</dd></div>';
+  el.innerHTML =
+    '<dl class="site-stats" style="margin-bottom:14px">' +
+      row('Source', esc(src), '') +
+      row('As of', esc(state.ordersDate || '—'), '') +
+      row('Open lines', fmt(state.orders.length, 0) +
+          ' <small>' + fmt(dated, 0) + ' with a delivery date</small>') +
+      row('Confirmed', fmt(state.orders.filter(o => confirmStatus(o) === 'confirmed').length, 0)) +
+      row('Not confirmed', fmt(c.unconfirmed, 0)) +
+      row('Unknown', fmt(c.total - c.known, 0)) +
+    '</dl>' +
+    (c.known === 0
+      ? '<div class="banner warn">Nothing can be told confirmed from unconfirmed. ' +
+        (!lastSheet
+          ? 'No orders spreadsheet has been imported — only the purchase-order list, which does not carry the flag.'
+          : !mapped
+            ? 'The orders spreadsheet was imported, but its confirmation column is not mapped. Open it again ' +
+              'and set <strong>Confirmations Exist</strong> under “Edit column mapping”.'
+            : 'The orders spreadsheet was imported and its confirmation column is mapped, so the two files ' +
+              'are probably describing different purchase orders — check they cover the same plants and dates.') +
+        '</div>'
+      : c.known < c.total
+        ? '<div class="banner info">' + fmt(c.total - c.known, 0) + ' line(s) are newer than the last orders ' +
+          'spreadsheet, so their status is not yet known. Export both files on the same day and they agree.</div>'
+        : '<div class="banner ok">Every open line has a known confirmation status.</div>') +
+    '<div class="small" style="margin-top:10px">' + fmt(flags, 0) + ' confirmation flag(s) held, keyed by ' +
+      'purchase order and item. They are kept apart from the list so that importing the other export ' +
+      'cannot lose them.' +
+      (mapped ? ' Confirmation column: <code>' + esc(mapped) + '</code>.' : '') + '</div>';
+}
+
 function renderImportPage() {
   const kinds = document.getElementById('importKinds');
   const lastOf = k => state.imports.find(i => i.kind === k);
@@ -5083,6 +5145,8 @@ function renderImportPage() {
     return '<div class="kind ' + k + '"><h4>' + SCHEMA[k].label + '</h4><p>' + SCHEMA[k].hint + '</p>' +
       '<div class="when">' + when + '</div><div class="small" style="margin-top:4px">' + esc(extra) + '</div></div>';
   }).join('');
+
+  renderOrderState();
 
   const log = document.getElementById('importLog');
   if (!state.imports.length) { log.innerHTML = '<div class="small">Nothing imported yet.</div>'; return; }

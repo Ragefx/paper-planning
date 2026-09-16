@@ -273,6 +273,14 @@ Seeing no unconfirmed markers means one of two very different things, so both
 tabs say which: none are outstanding, or nothing has been imported that could
 tell. The note gives the count either way.
 
+**Import → Open orders held** states the whole picture in one card: which export
+the list came from and as of when, how many lines are dated, the confirmed /
+not confirmed / unknown split, how many flags are held, and which column they
+were read from. When nothing can be told apart it names the reason — no
+spreadsheet imported, its confirmation column unmapped, or the two files
+describing different purchase orders. An unmapped confirmation column is also
+called out in the import preview, before committing rather than after.
+
 ## The work calendar
 Mon–Fri is only most of the answer, so **Settings → Holidays & shutdowns** holds
 the rest. Slovenian work-free days are **computed** rather than listed — Easter
