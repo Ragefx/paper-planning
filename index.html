@@ -957,7 +957,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-16 · 43';
+const BUILD = '2026-09-16 · 44';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -1087,6 +1087,23 @@ function migrateSettings(s, done) {
   return s;
 }
 
+// describeCode() briefly dropped the material-group prefix, so any material
+// first seen in that window (never imported with a genuine description) was
+// stuck with a fallback that read differently from every other one. A
+// description is set once and never overwritten, so this corrects it once,
+// on any machine still carrying the shorter form.
+function migrateMaterialDescriptions(materials, done) {
+  if (!done.descPrefix) {
+    for (const code in materials) {
+      const m = materials[code];
+      const fixed = describeCode(code);
+      if (fixed && m.desc && m.desc !== fixed && m.desc === fixed.replace(/^\d+ · /, '')) m.desc = fixed;
+    }
+    done.descPrefix = 1;
+  }
+  return materials;
+}
+
 function loadState() {
   return new Promise(resolve => {
     openDB().then(d => {
@@ -1108,6 +1125,7 @@ function loadState() {
           state.ordersSource = r.ordersSource || null;
           state.migrations = { ...(r.migrations || {}) };
           migrateSettings(state.settings, state.migrations);
+          migrateMaterialDescriptions(state.materials, state.migrations);
           state.mappings = { stock: {}, movements: {}, orders: {}, ...(r.mappings || {}) };
           state.plan = { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {}, ...(r.plan || {}) };
           state.plans = r.plans || {};
@@ -1990,7 +2008,10 @@ function pick(row, map, key) {
 function describeCode(code) {
   const m = /^(\d+)-(\d+)-(\d+)$/.exec(code);
   if (!m) return '';
-  return Number(m[2]) + ' g/m² · ' + Number(m[3]) + ' mm';
+  // Matches the shape of every genuine SAP description this app has ever seen
+  // ("1001 · 170 g/m² · 2200 mm"), so a material that has never once come
+  // through with a real description reads the same as one that has.
+  return m[1] + ' · ' + Number(m[2]) + ' g/m² · ' + Number(m[3]) + ' mm';
 }
 function noteMaterial(code, desc, unit) {
   if (!code) return;
