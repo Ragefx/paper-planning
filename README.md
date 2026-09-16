@@ -106,6 +106,16 @@ only, the all-time average uses both.
   snapshots, extended backwards by unwinding the movement history for days with
   no snapshot yet, then a dashed projection ahead. Optionally split by plant.
 
+  **Include unconfirmed orders** adds the lines the supplier has not
+  acknowledged. Where the export carries a confirmation flag the app reads it;
+  otherwise a missing delivery date says the same thing, since SAP only fills
+  the date once a confirmation arrives. Such a line has no date to plot, so it
+  is assumed to land a lead time from today — stated on the tab, not hidden.
+  The confirmed-only projection stays on the chart beside it: without the two
+  together there is no way to see how much of the curve is a supplier's promise
+  and how much is an assumption about orders nobody has acknowledged. Estimated
+  arrivals are drawn as hollow markers and say so on hover.
+
   Hovering says different things either side of today. On a future day the
   tooltip lists the deliveries expected — order, quantity, supplier. On a past
   day it reports what was actually posted: goods received and paper consumed,

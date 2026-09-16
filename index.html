@@ -264,6 +264,12 @@ body {
 
 /* ═══ CONTROLS ═══ */
 .controls { display: flex; gap: 9px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 15px; }
+label.fld.check {
+  flex-direction: row; align-items: center; gap: 7px; padding-bottom: 8px;
+  text-transform: none; letter-spacing: 0; font-size: 12.5px; color: var(--text-1);
+  cursor: pointer; white-space: nowrap;
+}
+label.fld.check input { width: 15px; height: 15px; accent-color: var(--amber); cursor: pointer; margin: 0; }
 label.fld {
   display: flex; flex-direction: column; gap: 5px; font-family: var(--font-mono);
   font-size: 9.5px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--text-2);
@@ -620,6 +626,10 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
         <option value="all">Avg all time (SI10+SI11)</option>
       </select>
     </label>
+    <label class="fld check">
+      <input type="checkbox" id="whUnconfirmed">
+      <span>Include unconfirmed orders</span>
+    </label>
     <div class="spacer"></div>
     <div class="seg" id="whPlantSeg">
       <button data-scope="both" class="active">SI10 + SI11</button>
@@ -632,7 +642,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
   <div class="card">
     <div class="card-title" id="whChartTitle">Stock evolution</div>
     <div class="chart-box tall"><canvas id="whChart"></canvas></div>
-    <div class="legend-note">Solid line = actual stock: reported daily snapshots, extended backwards by unwinding the movement history where no snapshot was taken yet. Dashed = projection using average usage and confirmed arrivals. Dots mark deliveries; hover for order, quantity and supplier. Open orders with no confirmed delivery date are excluded from the projection.</div>
+    <div class="legend-note" id="whLegendNote"></div>
   </div>
   <div class="card">
     <div class="card-title">Arrivals this month</div>
@@ -922,7 +932,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-14 · 29';
+const BUILD = '2026-09-16 · 30';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -961,6 +971,7 @@ const DEFAULTS = {
   capacity: { SI11: 2600, SI10: 1650 },
   target:   { SI11: 2100, SI10: 1320 },
   balanceDays: 45,
+  whUnconfirmed: false,     // show orders the supplier has not acknowledged
   truckLoad: 24000,         // kg on one lorry between the plants
 };
 
@@ -1623,7 +1634,9 @@ function shortDate(iso) { return iso ? iso.slice(8, 10) + '.' + iso.slice(5, 7) 
 function fmt(n, dec) {
   if (n === null || n === undefined || !isFinite(n)) return '—';
   const d = dec === undefined ? (Math.abs(n) >= 1000 ? 0 : Math.abs(n) >= 10 ? 1 : 2) : dec;
-  return n.toLocaleString('en-GB', { minimumFractionDigits: d, maximumFractionDigits: d });
+  if (Object.is(n, -0)) n = 0;          // negating an empty sum should not print "-0"
+  const out = n.toLocaleString('en-GB', { minimumFractionDigits: d, maximumFractionDigits: d });
+  return /^-0(?:[.,]0*)?$/.test(out) ? out.slice(1) : out;   // nor should rounding produce one
 }
 function fmtDays(n) {
   if (n === Infinity) return '∞';
@@ -1779,6 +1792,9 @@ const SCHEMA = {
       { k: 'vendor',   label: 'Supplier',      req: false, aliases: ['vendor', 'supplier', 'name of vendor', 'supplier name', 'dobavitelj', 'lieferant', 'customer', 'kupec', 'name 1'] },
       { k: 'desc',     label: 'Description',   req: false, aliases: ['material description', 'short text', 'material text', 'description', 'opis', 'naziv'] },
       { k: 'unit',     label: 'Unit',          req: false, aliases: ['order unit', 'base unit of measure', 'unit', 'uom', 'enota', 'me'] },
+      // Without this the app infers "unconfirmed" from a missing delivery date,
+      // which happens to be exact in a standard ME2M export but need not be.
+      { k: 'confirmed', label: 'Confirmed flag', req: false, aliases: ['confirmations exist', 'confirmation exists', 'confirmations', 'acknowledgements exist', 'acknowledgement exists', 'confirmed', 'potrjeno', 'potrditev', 'bestatigt', 'bestätigt'] },
     ],
   },
 };
@@ -2029,12 +2045,19 @@ function extractOrders(rows, map, fallbackDate) {
     // kept for the on-order total and left off the arrival timeline instead.
     const delivery = dateISO(pick(r, map, 'delivery'));
     if (!delivery) noDate++;
+    // Yes / No / X / 1 all appear in the wild; anything else leaves it unknown
+    // and the missing-date inference takes over.
+    const cRaw = String(pick(r, map, 'confirmed') || '').trim().toLowerCase();
+    const confirmed = !cRaw ? null
+      : ['yes', 'y', 'x', '1', 'true', 'da', 'ja'].indexOf(cRaw) > -1 ? true
+      : ['no', 'n', '0', 'false', 'ne', 'nein'].indexOf(cRaw) > -1 ? false
+      : null;
     noteMaterial(code, pick(r, map, 'desc'), pick(r, map, 'unit'));
     out.push({
       po: String(pick(r, map, 'po') || '').trim(),
       item: String(pick(r, map, 'item') || '').trim(),
       code, plant: plantCode(pick(r, map, 'plant')) || PLANT_PROD(),
-      qty, delivery: delivery || null,
+      qty, delivery: delivery || null, confirmed,
       vendor: String(pick(r, map, 'vendor') || '').trim(),
       unit: String(pick(r, map, 'unit') || '').trim(),
     });
@@ -2209,6 +2232,18 @@ function onOrderQty(code) {
 }
 // Open quantity with no confirmed delivery date — counted as on order, but
 // absent from every projection, so it is worth stating out loud.
+// A line the supplier has not committed to. The mapped flag wins when the
+// export carries one; otherwise a missing delivery date says the same thing,
+// since SAP only fills the date once a confirmation arrives.
+function isUnconfirmed(o) {
+  return o.confirmed === false || (o.confirmed !== true && !o.delivery);
+}
+// When an unconfirmed line has no date at all, the only honest estimate is the
+// lead time: ordered now, arriving a lead time from now.
+function estimatedArrival(o) {
+  return o.delivery || addDays(todayISO(), Math.max(0, Number(state.settings.leadDays) || 0));
+}
+
 function unconfirmedQty(code) {
   const list = code ? (openOrders()[code] || []) : state.orders;
   return list.filter(o => !o.delivery).reduce((s, o) => s + o.qty, 0);
@@ -2483,11 +2518,14 @@ function arrivalTooltip(byDate, labels) {
       const a = byDate[labels[ctx.dataIndex]];
       if (!a) return null;
       const unit = a.orders.length && unitOf(a.orders[0].code) ? ' ' + unitOf(a.orders[0].code) : '';
-      const lines = ['Arriving: ' + fmt(a.qty) + unit + ' · ' + a.orders.length + ' order(s)'];
+      const est = a.orders.length && a.orders[0].estimated;
+      const lines = [(est ? 'Estimated: ' : 'Arriving: ') + fmt(a.qty) + unit +
+                     ' · ' + a.orders.length + ' order(s)'];
       const sorted = a.orders.slice().sort((x, y) => y.qty - x.qty);
       for (const o of sorted.slice(0, TOOLTIP_ORDERS)) {
         lines.push('  ' + (o.po || 'order') + (o.item ? '/' + o.item : '') + ' · ' + fmt(o.qty, 0) +
-                   (o.vendor ? ' · ' + o.vendor : '') + (o.overdue ? ' · overdue' : ''));
+                   (o.vendor ? ' · ' + o.vendor : '') + (o.overdue ? ' · overdue' : '') +
+                   (o.estimated ? ' · not confirmed' : ''));
       }
       if (sorted.length > TOOLTIP_ORDERS) {
         lines.push('  + ' + (sorted.length - TOOLTIP_ORDERS) + ' more — full list in the table below');
@@ -2931,6 +2969,7 @@ function renderWarehouse() {
   const mk = document.getElementById('whMonth').value || monthKey(todayISO());
   const code = document.getElementById('whMaterial').value || '__all__';
   const basis = document.getElementById('whBasis').value;
+  const withUnconfirmed = !!document.getElementById('whUnconfirmed').checked;
   const today = todayISO();
 
   const nDays = monthDays(mk);
@@ -2961,21 +3000,29 @@ function renderWarehouse() {
   // future month reaches back to today. An order past its delivery date is
   // still outstanding and lands on the projection start rather than vanishing.
   const arrivalsByDate = {};
+  const guessByDate = {};          // unconfirmed lines, kept apart from the committed ones
+  let unconfirmedKg = 0, unconfirmedLines = 0;
   for (const c of codes) {
     for (const o of (openOrders()[c] || [])) {
       if (whScope !== 'both' && whScope !== 'split' && o.plant && o.plant !== whScope) continue;
-      if (!o.delivery) continue;
-      let eff = o.delivery;
+      const guess = isUnconfirmed(o);
+      if (guess && !withUnconfirmed) continue;
+      if (!guess && !o.delivery) continue;
+      let eff = guess ? estimatedArrival(o) : o.delivery;
       if (!monthIsPast && eff < projStart) eff = projStart;
       if (eff < projStart || eff > last) continue;
-      (arrivalsByDate[eff] || (arrivalsByDate[eff] = [])).push(
-        o.delivery < projStart && !monthIsPast ? { ...o, overdue: true } : o);
+      const tagged = (!guess && o.delivery < projStart && !monthIsPast) ? { ...o, overdue: true } : o;
+      if (guess) {
+        (guessByDate[eff] || (guessByDate[eff] = [])).push({ ...tagged, estimated: true });
+        unconfirmedKg += o.qty; unconfirmedLines++;
+      } else {
+        (arrivalsByDate[eff] || (arrivalsByDate[eff] = [])).push(tagged);
+      }
     }
   }
-  const arrivedOn = d => {
-    const arr = arrivalsByDate[d];
-    return arr ? arr.reduce((s, o) => s + o.qty, 0) : 0;
-  };
+  const sumOn = (map, d) => { const a = map[d]; return a ? a.reduce((s, o) => s + o.qty, 0) : 0; };
+  const arrivedOn = d => sumOn(arrivalsByDate, d);
+  const guessedOn = d => sumOn(guessByDate, d);
 
   function joinToActual(proj, actual) {
     const i = proj.findIndex(v => v !== null && v !== undefined);
@@ -2983,16 +3030,17 @@ function renderWarehouse() {
     return proj;
   }
 
-  function buildProjection(startQty) {
+  function buildProjection(startQty, includeGuesses) {
     const out = dates.map(() => null);
     if (monthIsPast || startQty === null || startQty === undefined) return out;
-    let q = startQty + arrivedOn(projStart);
+    const lands = d => arrivedOn(d) + (includeGuesses ? guessedOn(d) : 0);
+    let q = startQty + lands(projStart);
     const span = daysBetween(projStart, last);
     for (let i = 0; i <= span; i++) {
       const d = addDays(projStart, i);
       if (i > 0) {
         if (consumesOn(d)) q -= usage;
-        q += arrivedOn(d);
+        q += lands(d);
       }
       const at = dates.indexOf(d);          // days before the month are walked, not drawn
       if (at > -1) out[at] = q;
@@ -3009,6 +3057,7 @@ function renderWarehouse() {
     return dates.map((d, i) => (actWh[i] === null && actPr[i] === null) ? null : (actWh[i] || 0) + (actPr[i] || 0));
   }
 
+  const showGuess = withUnconfirmed && unconfirmedLines > 0 && !monthIsPast;
   if (whScope === 'split') {
     datasets.push(lineDs(PLANT_WH() + ' actual', maskFuture(actWh, dates, today), cWh, false));
     datasets.push(lineDs(PLANT_PROD() + ' actual', maskFuture(actPr, dates, today), cPr, false));
@@ -3019,20 +3068,44 @@ function renderWarehouse() {
     datasets.push(lineDs('Actual stock', act, cTot, false, true));
     datasets.push(lineDs('Projected', joinToActual(buildProjection(scopeStockFor(code, whScope)), act), cTot, true));
   }
+  // Keeping the confirmed-only line alongside is the point: without it there is
+  // no way to see how much of the curve is a supplier's promise and how much is
+  // an assumption about orders nobody has acknowledged.
+  if (showGuess) {
+    const base = whScope === 'split' ? PLANT_PROD() : whScope;
+    const act = whScope === 'split' ? maskFuture(actPr, dates, today) : maskFuture(actualForScope(), dates, today);
+    datasets.push(lineDs('Incl. unconfirmed',
+      joinToActual(buildProjection(scopeStockFor(code, base), true), act), cssVar('--s3'), true));
+  }
 
-  // Arrival markers sit on the line they belong to.
-  const line = datasets[datasets.length - 1].data;
+  // Arrival markers sit on the line they belong to: committed deliveries on the
+  // projection, estimates on the line that actually contains them.
+  const guessLine = showGuess ? datasets[datasets.length - 1].data : null;
+  const line = datasets[showGuess ? datasets.length - 2 : datasets.length - 1].data;
   const prevLine = datasets[0].data;
-  const arrivals = Object.keys(arrivalsByDate).filter(d => d >= first && d <= last).sort().map(d => {
+  const markers = (map, host) => Object.keys(map).filter(d => d >= first && d <= last).sort().map(d => {
     const i = dates.indexOf(d);
-    const orders = arrivalsByDate[d];
-    const lvl = (line[i] !== null && line[i] !== undefined) ? line[i] : (prevLine[i] !== null && prevLine[i] !== undefined ? prevLine[i] : 0);
+    const orders = map[d];
+    const lvl = (host && host[i] !== null && host[i] !== undefined) ? host[i]
+              : (line[i] !== null && line[i] !== undefined) ? line[i]
+              : (prevLine[i] !== null && prevLine[i] !== undefined) ? prevLine[i] : 0;
     return { date: d, qty: orders.reduce((s, o) => s + o.qty, 0), orders, level: lvl };
   });
+  const arrivals = markers(arrivalsByDate, line);
+  const guesses = showGuess ? markers(guessByDate, guessLine) : [];
   const byDate = {};
-  for (const a of arrivals) byDate[a.date] = a;
+  for (const a of arrivals.concat(guesses)) byDate[a.date] = byDate[a.date] || a;
   if (arrivals.length) {
     datasets.push(Object.assign(arrivalDataset(arrivals, dates, cssVar('--s3')), { type: 'line', borderColor: 'transparent' }));
+  }
+  if (guesses.length) {
+    const gd = arrivalDataset(guesses, dates, cssVar('--pane'));
+    datasets.push(Object.assign(gd, {
+      type: 'line', borderColor: 'transparent', label: 'Unconfirmed (estimated)',
+      // hollow, so a guess never looks like a booked delivery
+      pointStyle: 'triangle', pointBorderColor: cssVar('--warn'), pointBorderWidth: 2,
+      isGuesses: true,
+    }));
   }
 
   const opt = chartBase();
@@ -3060,12 +3133,26 @@ function renderWarehouse() {
   opt.plugins.tooltip.callbacks = {
     title: items => dates[items[0].dataIndex],
     label(ctx) {
-      if (ctx.dataset.isArrivals) return arrivalTooltip(byDate, dates).label(ctx);
+      if (ctx.dataset.isArrivals || ctx.dataset.isGuesses) {
+        const src = {};
+        for (const a of (ctx.dataset.isGuesses ? guesses : arrivals)) src[a.date] = a;
+        return arrivalTooltip(src, dates).label(ctx);
+      }
       if (ctx.parsed.y === null) return null;
       return ctx.dataset.label + ': ' + fmt(ctx.parsed.y);
     },
     footer: items => dayFooter(dates[items[0].dataIndex]),
   };
+
+  document.getElementById('whLegendNote').innerHTML =
+    'Solid line = actual stock: reported daily snapshots, extended backwards by unwinding the movement ' +
+    'history where no snapshot was taken yet. Dashed = projection using average usage and confirmed ' +
+    'arrivals. Dots mark deliveries; hover for order, quantity and supplier. ' +
+    (withUnconfirmed
+      ? 'The green line adds orders the supplier has <strong>not confirmed</strong>; where such a line ' +
+        'carries no date at all it is assumed to land ' + (Number(state.settings.leadDays) || 0) +
+        ' day(s) out, the lead time set on Production Planning. Hollow markers are those estimates.'
+      : 'Open orders with no confirmed delivery date are excluded — tick “Include unconfirmed orders” to add them.');
 
   document.getElementById('whChartTitle').textContent =
     (code === '__all__' ? 'All materials' : materialLabel(code)) + ' · ' + mk;
@@ -3086,6 +3173,10 @@ function renderWarehouse() {
     tile('Net transfer', fmt(Math.abs(netToProd), 0),
          netToProd === 0 ? 'no 301 / 302 postings' : transferDir + ' · 301 / 302 postings'),
     tile('Still to arrive', fmt(incoming, 0), arrivals.length + ' delivery date(s)'),
+    ...(withUnconfirmed ? [tile('Unconfirmed included', fmt(unconfirmedKg, 0),
+        unconfirmedLines ? unconfirmedLines + ' line(s) · assumed ' + (Number(state.settings.leadDays) || 0) +
+          ' day(s) out where no date is given' : 'none in this window',
+        unconfirmedLines ? 'accent' : '')] : []),
     // The rate driving the projection, as a figure in its own right — it was
     // only ever a footnote on the tile it produces.
     tile('Usage rate', fmt(usage, 0) + '<span class="stat-unit">kg / ' +
@@ -3095,9 +3186,12 @@ function renderWarehouse() {
       const end = lastNonNull(datasets[whScope === 'split' ? 2 : 1].data);
       const start = scopeStockFor(code, whScope);
       const delta = (end === null || monthIsPast) ? null : end - start;
+      const guessEnd = showGuess
+        ? lastNonNull(datasets.find(d => d.label === 'Incl. unconfirmed').data) : null;
       return tile('Projected month end', fmt(end, 0),
         delta === null ? 'month already closed'
-          : (delta >= 0 ? '+' : '') + fmt(delta, 0) + ' from today');
+          : (delta >= 0 ? '+' : '') + fmt(delta, 0) + ' from today' +
+            (guessEnd !== null ? ' · ' + fmt(guessEnd, 0) + ' with the unconfirmed orders' : ''));
     })(),
   ].join('');
 
@@ -5126,6 +5220,10 @@ function wire() {
   document.getElementById('whMaterial').addEventListener('change', e => { e.target.dataset.userPicked = '1'; });
 
   // Warehouse
+  document.getElementById('whUnconfirmed').onchange = e => {
+    state.settings.whUnconfirmed = !!e.target.checked;
+    saveState(); renderWarehouse();
+  };
   ['whMonth', 'whMaterial', 'whBasis'].forEach(id =>
     document.getElementById(id).onchange = renderWarehouse);
   document.querySelectorAll('#whPlantSeg button').forEach(b => b.onclick = () => {
@@ -5188,6 +5286,7 @@ function boot() {
   const lg = document.getElementById('logo');
   if (lg) lg.title = 'Paper Plan · build ' + BUILD;
   document.getElementById('whMonth').value = monthKey(todayISO());
+  document.getElementById('whUnconfirmed').checked = !!state.settings.whUnconfirmed;
   document.getElementById('planMonth').value = state.plan.month || monthKey(addDays(todayISO(), 32));
   state.plan.month = document.getElementById('planMonth').value;
   document.getElementById('planSqm').value = state.plan.sqm || '';
