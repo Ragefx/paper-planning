@@ -234,6 +234,25 @@ still to come; above it the line stays open at its outstanding quantity. On a
 real export that separates cleanly: 58 residual lines averaging under 20% of
 their order, and 3 genuine partials at 33%, 50% and 65%.
 
+### Confirmed or only ordered
+Neither export answers both questions: the purchase-order list dates every line
+but says nothing about acknowledgement, and the spreadsheet carries the
+acknowledgement flag but no usable date. So **import both**. The flag is kept in
+its own map keyed by PO and item, separate from the order list, and therefore
+survives that list being replaced by the other source.
+
+On the Material Forecast and Warehouse Movement charts each arrival marker is
+coloured by that state, using the reserved status palette rather than a series
+hue because it is a state, not a category: **filled** = the supplier has
+confirmed, **hollow amber** = ordered but not acknowledged, **hollow grey** =
+no flag held for that line. A day mixing the two takes the weaker of them —
+what matters at a glance is that some of the quantity is not promised — and the
+tooltip marks every line with ✓, ○ or · and totals the unconfirmed share.
+
+A line's own flag always beats the remembered map, since it came from the same
+file as the quantity. Nothing is ever assumed confirmed: a line with no flag
+reads *unknown*.
+
 ## The work calendar
 Mon–Fri is only most of the answer, so **Settings → Holidays & shutdowns** holds
 the rest. Slovenian work-free days are **computed** rather than listed — Easter

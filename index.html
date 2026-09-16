@@ -591,7 +591,9 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
   <div class="card">
     <div class="card-title" id="fcChartTitle">Projected stock</div>
     <div class="chart-box tall"><canvas id="fcChart"></canvas></div>
-    <div class="legend-note">Dots mark expected arrivals from open purchase orders (GR quantity = 0). Hover for order number, quantity and supplier.</div>
+    <div class="legend-note">Markers are expected arrivals from open purchase orders — hover for order number,
+      quantity and supplier. <strong>Filled</strong> means the supplier has confirmed the delivery,
+      <strong>hollow</strong> means it is ordered but not yet acknowledged.</div>
   </div>
   <div class="card">
     <div class="card-title">Open orders for this material</div>
@@ -929,7 +931,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-16 · 32';
+const BUILD = '2026-09-16 · 33';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -989,6 +991,7 @@ let state = {
   mappings: { stock: {}, movements: {}, orders: {} },
   settings: freshSettings(),
   calendar: { off: {}, work: {} },   // days added / holidays cancelled by hand
+  orderFlags: {},  // 'po|item' -> { confirmed, asOf } — outlives the order list
   migrations: {},  // one-off corrections already applied to this database
   plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {} },
   plans: {},      // 'YYYY-MM' -> the plan as it stood when saved
@@ -1070,6 +1073,7 @@ function loadState() {
           state.settings.capacity = { ...DEFAULTS.capacity, ...(state.settings.capacity || {}) };
           state.settings.target   = { ...DEFAULTS.target,   ...(state.settings.target   || {}) };
           state.calendar = { off: {}, work: {}, ...(r.calendar || {}) };
+          state.orderFlags = r.orderFlags || {};
           state.migrations = { ...(r.migrations || {}) };
           migrateSettings(state.settings, state.migrations);
           state.mappings = { stock: {}, movements: {}, orders: {}, ...(r.mappings || {}) };
@@ -1135,6 +1139,7 @@ function mergeStates(local, remote) {
     mappings: newer.mappings || older.mappings || {},
     plan: newer.plan || older.plan || {},
     calendar: (newer.calendar || older.calendar || { off: {}, work: {} }),
+    orderFlags: { ...(older.orderFlags || {}), ...(newer.orderFlags || {}) },
     migrations: { ...(older.migrations || {}), ...(newer.migrations || {}) },
     plans: { ...(older.plans || {}), ...(newer.plans || {}) },
     actuals: { ...(older.actuals || {}), ...(newer.actuals || {}) },
@@ -2353,15 +2358,48 @@ function onOrderQty(code) {
 }
 // Open quantity with no confirmed delivery date — counted as on order, but
 // absent from every projection, so it is worth stating out loud.
-// A line the supplier has not committed to. The mapped flag wins when the
-// export carries one; otherwise a missing delivery date says the same thing,
-// since SAP only fills the date once a confirmation arrives.
-function isUnconfirmed(o) {
-  return o.confirmed === false || (o.confirmed !== true && !o.delivery);
+// Two exports answer two different questions and neither answers both. The
+// purchase-order list dates every line but says nothing about acknowledgement;
+// the spreadsheet carries the acknowledgement flag but no usable date. So the
+// flag is kept in its own map, keyed by PO and item, and survives the order
+// list being replaced by the other source.
+function orderKey(o) { return (o.po || '') + '|' + (o.item || ''); }
+
+function rememberOrderFlags(rows) {
+  const flags = { ...(state.orderFlags || {}) };
+  let n = 0;
+  for (const o of rows) {
+    if (o.confirmed === null || o.confirmed === undefined) continue;
+    flags[orderKey(o)] = { confirmed: !!o.confirmed, asOf: todayISO() };
+    n++;
+  }
+  if (!n) return 0;
+  // Keep the map from growing without bound: anything neither in the file just
+  // read nor in the list currently held describes an order that is long closed.
+  const live = new Set(rows.map(orderKey).concat(state.orders.map(orderKey)));
+  for (const k in flags) if (!live.has(k)) delete flags[k];
+  state.orderFlags = flags;
+  return n;
 }
-function unconfirmedQty(code) {
+
+// 'confirmed' | 'unconfirmed' | 'unknown'. A flag on the line itself wins,
+// since it came from the same file as the quantity.
+function confirmStatus(o) {
+  if (o.confirmed === true) return 'confirmed';
+  if (o.confirmed === false) return 'unconfirmed';
+  const f = (state.orderFlags || {})[orderKey(o)];
+  if (f) return f.confirmed ? 'confirmed' : 'unconfirmed';
+  return 'unknown';
+}
+function isUnconfirmedLine(o) { return confirmStatus(o) === 'unconfirmed'; }
+
+// Lines with no delivery date at all. They count towards "on order" but cannot
+// be placed on a timeline, so every projection is short by them. Distinct from
+// unacknowledged: the purchase-order list dates lines the supplier has not yet
+// confirmed, and the spreadsheet confirms lines it cannot date.
+function undatedQty(code) {
   const list = code ? (openOrders()[code] || []) : state.orders;
-  return list.filter(isUnconfirmed).reduce((s, o) => s + o.qty, 0);
+  return list.filter(o => !o.delivery).reduce((s, o) => s + o.qty, 0);
 }
 // Open orders whose delivery date has already passed. The projection assumes
 // they land today, which is usually right and occasionally very wrong, so a
@@ -2371,9 +2409,9 @@ function overdueQty(code) {
   const list = code ? (openOrders()[code] || []) : state.orders;
   return list.filter(o => o.delivery && o.delivery < t).reduce((s, o) => s + o.qty, 0);
 }
-function unconfirmedCount(code) {
+function undatedCount(code) {
   const list = code ? (openOrders()[code] || []) : state.orders;
-  return list.filter(isUnconfirmed).length;
+  return list.filter(o => !o.delivery).length;
 }
 
 function allMaterialCodes() {
@@ -2422,7 +2460,7 @@ function materialRows(basis) {
         code, desc: (state.materials[code] || {}).desc || '', unit: unitOf(code),
         wh: qWh, pr: qPr, total,
         ordered: onOrderQty(code),
-        undated: unconfirmedQty(code),
+        undated: undatedQty(code),
         overdue: overdueQty(code),
         usage,
         days: cover.days, capped: cover.capped, noUsage: cover.noUsage,
@@ -2608,35 +2646,75 @@ function zeroLine(color) {
 }
 
 // Arrival markers share a tooltip formatter across the forecast and warehouse tabs.
-function arrivalDataset(arrivals, labels, color) {
-  const byDate = {};
-  for (const a of arrivals) byDate[a.date] = a;
-  return {
-    label: 'Deliveries',
-    isArrivals: true,
-    data: labels.map(d => byDate[d] ? byDate[d].level : null),
-    showLine: false, pointRadius: 6, pointHoverRadius: 9,
-    pointStyle: 'triangle',
-    pointBackgroundColor: color,
-    // 2px surface ring keeps the marker legible where it sits on the line
-    pointBorderColor: cssVar('--pane'), pointBorderWidth: 2,
-    _arrivals: byDate,
-  };
+//
+// A marker is coloured by whether the supplier has acknowledged the orders
+// landing that day. Where a day mixes the two it takes the weaker of them:
+// what matters at a glance is that some of that quantity is not yet promised,
+// and the tooltip breaks the day down line by line. Status colours are used
+// here rather than the series hue, because this is a state, not a category.
+const ARRIVAL_STATES = {
+  confirmed:   { label: 'Delivery confirmed', mark: '--ok',     hollow: false },
+  unconfirmed: { label: 'Ordered, not confirmed', mark: '--warn', hollow: true },
+  unknown:     { label: 'Confirmation unknown', mark: '--text-2', hollow: true },
+};
+const STATE_RANK = { unconfirmed: 0, unknown: 1, confirmed: 2 };
+
+function arrivalState(a) {
+  let worst = 'confirmed';
+  for (const o of a.orders) {
+    const st = confirmStatus(o);
+    if (STATE_RANK[st] < STATE_RANK[worst]) worst = st;
+  }
+  return worst;
+}
+
+// One dataset per state actually present, so each gets its own legend entry and
+// a day never carries two overlapping markers.
+function arrivalDatasets(arrivals, labels) {
+  const bucket = {};
+  for (const a of arrivals) (bucket[arrivalState(a)] || (bucket[arrivalState(a)] = [])).push(a);
+  return Object.keys(ARRIVAL_STATES).filter(k => bucket[k] && bucket[k].length).map(k => {
+    const spec = ARRIVAL_STATES[k];
+    const byDate = {};
+    for (const a of bucket[k]) byDate[a.date] = a;
+    const col = cssVar(spec.mark);
+    return {
+      label: spec.label,
+      isArrivals: true,
+      type: 'line', borderColor: 'transparent',
+      data: labels.map(d => byDate[d] ? byDate[d].level : null),
+      showLine: false, pointRadius: 6, pointHoverRadius: 9,
+      pointStyle: 'triangle',
+      // hollow says "not promised yet" without inventing a second shape
+      pointBackgroundColor: spec.hollow ? cssVar('--pane') : col,
+      pointBorderColor: spec.hollow ? col : cssVar('--pane'),
+      pointBorderWidth: 2,
+      _arrivals: byDate,
+    };
+  });
 }
 // A day can collect a lot of deliveries — every overdue order lands on the
 // projection start — so the tooltip lists the largest few and counts the rest.
 // The arrivals table under the chart carries the full list.
 const TOOLTIP_ORDERS = 6;
+const STATE_MARK = { confirmed: '✓', unconfirmed: '○', unknown: '·' };
 function arrivalTooltip(byDate, labels) {
   return {
     label(ctx) {
-      const a = byDate[labels[ctx.dataIndex]];
+      const src = (ctx.dataset && ctx.dataset._arrivals) || byDate;
+      const a = src[labels[ctx.dataIndex]];
       if (!a) return null;
       const unit = a.orders.length && unitOf(a.orders[0].code) ? ' ' + unitOf(a.orders[0].code) : '';
+      const pending = a.orders.filter(o => confirmStatus(o) === 'unconfirmed');
       const lines = ['Arriving: ' + fmt(a.qty) + unit + ' · ' + a.orders.length + ' order(s)'];
+      if (pending.length) {
+        lines.push('Not confirmed: ' + fmt(pending.reduce((s, o) => s + o.qty, 0)) + unit +
+                   ' · ' + pending.length + ' of ' + a.orders.length);
+      }
       const sorted = a.orders.slice().sort((x, y) => y.qty - x.qty);
       for (const o of sorted.slice(0, TOOLTIP_ORDERS)) {
-        lines.push('  ' + (o.po || 'order') + (o.item ? '/' + o.item : '') + ' · ' + fmt(o.qty, 0) +
+        lines.push(STATE_MARK[confirmStatus(o)] + ' ' + (o.po || 'order') +
+                   (o.item ? '/' + o.item : '') + ' · ' + fmt(o.qty, 0) +
                    (o.vendor ? ' · ' + o.vendor : '') + (o.overdue ? ' · overdue' : ''));
       }
       if (sorted.length > TOOLTIP_ORDERS) {
@@ -2684,7 +2762,7 @@ function renderMaterials() {
     tile('Materials tracked', fmt(rows.length, 0)),
     tile('Stock on hand', fmt(totalStock, 0), PLANT_WH() + ' ' + fmt(rows.reduce((s, r) => s + r.wh, 0), 0) + ' · ' + PLANT_PROD() + ' ' + fmt(rows.reduce((s, r) => s + r.pr, 0), 0)),
     tile('On order', fmt(totalOrder, 0), state.orders.length + ' open line(s)' +
-         (unconfirmedCount() ? ' · ' + fmt(unconfirmedQty(), 0) + ' undated' : '')),
+         (undatedCount() ? ' · ' + fmt(undatedQty(), 0) + ' undated' : '')),
     tile('Critical', fmt(crit, 0), '≤ ' + state.settings.critDays + ' days of cover', crit ? 'danger' : ''),
     tile('Low', fmt(low, 0), '≤ ' + state.settings.lowDays + ' days of cover', low ? 'accent' : ''),
   ].join('');
@@ -2931,7 +3009,7 @@ function renderForecast() {
     tile('Avg usage · 90 days', fmt(u90), basisNote('90')),
     tile('Avg usage · all time', fmt(uAll), basisNote('all')),
     tile('On order', fmt(ordered, 0), (openOrders()[code] || []).length + ' open line(s)' +
-         (unconfirmedCount(code) ? ' · ' + fmt(unconfirmedQty(code), 0) + ' with no confirmed date' : '')),
+         (undatedCount(code) ? ' · ' + fmt(undatedQty(code), 0) + ' with no confirmed date' : '')),
     tile('Days to stockout',
          (used <= 0 ? '—' : stockoutIn === null ? '> ' + days : String(Math.round(stockoutIn))) + '<span class="stat-unit">days</span>',
          used <= 0 ? 'no usage recorded'
@@ -2965,7 +3043,7 @@ function renderForecast() {
       labels,
       datasets: [
         lineDs('Projected stock', proj.points.map(p => p.qty), cssVar('--s1'), false, true),
-        Object.assign(arrivalDataset(proj.arrivals, labels, cssVar('--s3')), { type: 'line', borderColor: 'transparent' }),
+        ...arrivalDatasets(proj.arrivals, labels),
       ],
     },
     options: opt,
@@ -2998,7 +3076,7 @@ function renderForecast() {
   } else {
     const out = daysBetween(todayISO(), proj.stockout);
     const when = out <= 0 ? 'now — nothing in stock' : out === 1 ? 'tomorrow' : 'in ' + out + ' days';
-    const undated = unconfirmedQty(code);
+    const undated = undatedQty(code);
     alertHost.innerHTML = '<div class="banner err">Projected to run out <strong>' + when + '</strong>' +
       (out > 0 ? ', on <strong>' + esc(proj.stockout) + '</strong>' : '') +
       ', drawing ' + fmt(used) + (state.settings.usageDays === 'all' ? ' per day' : ' per working day') +
@@ -3182,9 +3260,7 @@ function renderWarehouse() {
   });
   const byDate = {};
   for (const a of arrivals) byDate[a.date] = a;
-  if (arrivals.length) {
-    datasets.push(Object.assign(arrivalDataset(arrivals, dates, cssVar('--s3')), { type: 'line', borderColor: 'transparent' }));
-  }
+  for (const ds of arrivalDatasets(arrivals, dates)) datasets.push(ds);
 
   const opt = chartBase();
   opt.scales.y.beginAtZero = false;
@@ -3222,10 +3298,13 @@ function renderWarehouse() {
     'Solid line = actual stock: reported daily snapshots, extended backwards by unwinding the movement ' +
     'history where no snapshot was taken yet. Dashed = projection using average usage and the dated open ' +
     'orders. Dots mark deliveries; hover for order, quantity and supplier. ' +
-    (unconfirmedCount()
-      ? '<strong>' + unconfirmedCount() + ' open line(s) carry no delivery date</strong> and are left out of ' +
-        'the projection — the SAP purchase-order list dates every line, where the spreadsheet export cannot.'
-      : 'Every open order line has a delivery date, so nothing is left out.');
+    (undatedCount()
+      ? '<strong>' + undatedCount() + ' open line(s) carry no delivery date</strong> and are left out of ' +
+        'the projection — the SAP purchase-order list dates every line, where the spreadsheet export cannot. '
+      : 'Every open order line has a delivery date, so nothing is left out. ') +
+    'A <strong>filled</strong> marker is a delivery the supplier has confirmed; a <strong>hollow</strong> one ' +
+    'is ordered but not yet acknowledged. A day carrying both takes the weaker of the two — the tooltip ' +
+    'breaks it down line by line.';
 
   document.getElementById('whChartTitle').textContent =
     (code === '__all__' ? 'All materials' : materialLabel(code)) + ' · ' + mk;
@@ -3839,7 +3918,7 @@ function renderOverview() {
     '<div><dt>Cover</dt><dd>' + (cover === null ? '—' : fmt(cover, 0)) +
       ' <small>' + unitWord + 's at that rate</small></dd></div>' +
     '<div><dt>On order</dt><dd>' + t(totalOrder) + ' <small>t · ' + state.orders.length + ' line(s)' +
-      (unconfirmedCount() ? ', ' + unconfirmedCount() + ' undated' : '') + '</small></dd></div>' +
+      (undatedCount() ? ', ' + undatedCount() + ' undated' : '') + '</small></dd></div>' +
     '<div><dt>Materials</dt><dd>' + fmt(rows.filter(r => r.total !== 0 || r.ordered !== 0).length, 0) +
       ' <small>in stock or on order</small></dd></div>';
 
@@ -3952,10 +4031,10 @@ function renderOverviewTodo(f) {
     }
   }
 
-  const undated = unconfirmedCount();
+  const undated = undatedCount();
   if (undated) {
     items.push({ lvl: 'warn', title: undated + ' order line(s) have no delivery date',
-      text: fmt(unconfirmedQty(), 0) + ' kg counts as on order but sits on no timeline, so every projection ' +
+      text: fmt(undatedQty(), 0) + ' kg counts as on order but sits on no timeline, so every projection ' +
             'is short by it until a supplier confirms.', page: 'materials', link: 'See the materials' });
   }
   const overdueLines = state.orders.filter(o => o.delivery && o.delivery < todayISO()).length;
@@ -4803,7 +4882,12 @@ function commit(id) {
     }
   } else {
     const res = e.fixed ? e.parsed : extractOrders(e.rows, e.map, e.snapDate);
-    warn = res.warn;
+    warn = res.warn.slice();
+    // Kept before the list is swapped, so the flags of the outgoing list are
+    // still available to decide what is worth keeping.
+    const flagged = rememberOrderFlags(res.rows);
+    if (flagged) warn.push(flagged + ' line(s) carried a supplier confirmation flag, remembered for ' +
+      'whichever export replaces this one.');
     undo.orders = state.orders;
     undo.ordersDate = state.ordersDate;
     skipped = state.orders.length;
@@ -5244,7 +5328,7 @@ function wireSettings() {
     state = { version: 1, materials: {}, stock: {}, movements: [], orders: [], ordersDate: null,
               imports: [], mappings: { stock: {}, movements: {}, orders: {} },
               settings: freshSettings(), migrations: { si10cap: 1 }, calendar: { off: {}, work: {} },
-              plans: {}, actuals: {},
+              orderFlags: {}, plans: {}, actuals: {},
               plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {} } };
     invalidate(); saveState(true); boot();
   };
