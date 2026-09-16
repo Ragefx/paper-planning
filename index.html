@@ -171,6 +171,13 @@ body {
   line-height: 1; letter-spacing: -.02em; color: var(--text-0);
 }
 .stat-value.sm { font-size: 17px; }
+/* Two figures in one tile — each leg of a stock transfer, say. */
+.stat-pair { display: grid; gap: 7px; }
+.stat-pair > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 17px; }
+.stat-pair .leg {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 500; letter-spacing: .08em;
+  color: var(--text-2);
+}
 .stat-unit { font-family: var(--font-sans); font-size: 11px; color: var(--text-2); font-weight: 400; margin-left: 5px; letter-spacing: 0; }
 .stat-note { font-size: 11px; color: var(--text-2); margin-top: 8px; line-height: 1.45; }
 .stat.danger .stat-value { color: var(--crit-ink); }
@@ -938,7 +945,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-16 · 41';
+const BUILD = '2026-09-16 · 42';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -3440,16 +3447,20 @@ function renderWarehouse() {
   // Stat tiles for the month.
   const monthReceipts = sumMovements(codes, mk, m => MVT[m.mvt].kind === 'receipt' && ownStock(m));
   const monthUsage = -sumMovements(codes, mk, m => USAGE_MVT.indexOf(m.mvt) > -1);
-  const netToProd = sumMovements(codes, mk, m => MVT[m.mvt].kind === 'transfer' && m.plant === PLANT_PROD() && ownStock(m));
-  const transferDir = netToProd < 0
-    ? PLANT_PROD() + ' → ' + PLANT_WH()
-    : PLANT_WH() + ' → ' + PLANT_PROD();
+  const outOfWh = transferOut(codes, mk, PLANT_WH());
+  const outOfProd = transferOut(codes, mk, PLANT_PROD());
   const incoming = arrivals.reduce((s, a) => s + a.qty, 0);
   document.getElementById('whStats').innerHTML = [
     tile('Received this month', fmt(monthReceipts, 0), '101 / 102 / 411 postings'),
     tile('Consumed this month', fmt(monthUsage, 0), '251 / 252 postings'),
-    tile('Net transfer', fmt(Math.abs(netToProd), 0),
-         netToProd === 0 ? 'no 301 / 302 postings' : transferDir + ' · 301 / 302 postings'),
+    tile('Transferred this month',
+         '<div class="stat-pair">' +
+           transferLeg(PLANT_WH(), PLANT_PROD(), outOfWh) +
+           transferLeg(PLANT_PROD(), PLANT_WH(), outOfProd) +
+         '</div>',
+         (outOfWh || outOfProd)
+           ? 'each leg is the quantity booked out of that plant · 301 / 302 postings'
+           : 'no 301 / 302 postings'),
     tile('Still to arrive', fmt(incoming, 0), arrivals.length + ' delivery date(s)'),
     // The rate driving the projection, as a figure in its own right — it was
     // only ever a footnote on the tile it produces.
@@ -3510,6 +3521,22 @@ function sumMovements(codes, mk, pred) {
     s += m.qty;
   }
   return s;
+}
+
+// Quantity booked *out* of a plant on a stock transfer, which is the one leg
+// of the move SAP writes with a minus sign. The export carries both legs — the
+// minus at the sending plant and the matching plus at the receiving one — so
+// counting only the negatives keeps each move to a single number. A 302
+// reverses a 301, posting a plus back at the plant that sent the stock, so it
+// is subtracted here rather than read as a move in the other direction.
+// Mirrored rows are ours, not SAP's, and would double the total.
+function transferOut(codes, mk, plant) {
+  return -sumMovements(codes, mk, m =>
+    m.plant === plant && !m.mirrored && ownStock(m) &&
+    ((m.mvt === '301' && m.qty < 0) || (m.mvt === '302' && m.qty > 0)));
+}
+function transferLeg(from, to, qty) {
+  return '<div><span class="leg">' + esc(from + ' → ' + to) + '</span>' + fmt(qty, 0) + '</div>';
 }
 
 // ═══════════════════════════════════════════════════════════
