@@ -938,7 +938,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-16 · 40';
+const BUILD = '2026-09-16 · 41';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -2286,14 +2286,26 @@ function usageIndex() {
 // a 30-day average divides by four days, not thirty, or every figure would
 // read low until a month of history had built up.
 function usageWindow(basis) {
-  const to = lastMovementDate();
-  if (!to) return null;
+  const last = lastMovementDate();
+  if (!last) return null;
   const first = firstMovementDate();
+  // Today's postings are whatever has been booked so far: the corrugator is
+  // still running, so the quantity is short while the day still counts in full
+  // against the divisor. Including it drags every average below the real rate,
+  // and the more recently the file was pulled the worse it reads. So the window
+  // ends yesterday — unless that would leave nothing, on the first import of
+  // the day, when a low figure beats no figure and the note says which it is.
+  const t = todayISO();
+  const partial = last >= t;
+  let to = partial ? addDays(t, -1) : last;
+  let dropped = partial;
+  if (!first || to < first) { to = last; dropped = false; }
+
   const build = (from, plants, clipped) => {
     const span = Math.max(1, daysBetween(from, to) + 1);
     let workdays = 0;
     for (let i = 0; i < span; i++) if (consumesOn(addDays(from, i))) workdays++;
-    return { from, to, span, workdays, plants, clipped };
+    return { from, to, span, workdays, plants, clipped, dropped };
   };
   if (basis === 'all') return build(first, PLANTS(), false);
   const n = Number(basis) || 30;
@@ -2555,12 +2567,13 @@ function basisNote(basis) {
   if (!w) return 'no movement history';
   const who = w.plants.join(' + ');
   const unit = state.settings.usageDays === 'all' ? 'per day' : 'per working day';
+  const partial = w.dropped ? ' · today left out, still running' : '';
   if (basis === 'all') {
     const stale = retiredPlantInAllTime();
-    return who + ' · ' + unit + ' over ' + w.workdays + ' of ' + w.span + ' days, from ' + w.from +
+    return who + ' · ' + unit + ' over ' + w.workdays + ' of ' + w.span + ' days, from ' + w.from + partial +
       (stale ? ' · includes ' + stale.plant + ' production, which stopped ' + stale.until : '');
   }
-  return who + ' only · ' + unit + (w.clipped ? ' · only ' + w.span + ' days of history' : '');
+  return who + ' only · ' + unit + (w.clipped ? ' · only ' + w.span + ' days of history' : '') + partial;
 }
 
 // How stale the numbers are. Deciding on four-day-old movements should not be

@@ -63,6 +63,12 @@ Two further things the numbers depend on, both handled explicitly:
 - **Usage averages are clipped to the history you hold.** With six days of
   movements imported, a "30-day average" divides by six days, not thirty. Every
   average states the window it was really measured over.
+- **Today is left out of every usage average.** Its postings are whatever has
+  been booked so far — the corrugator is still running — so the quantity is
+  short while the day still counts in full against the divisor, dragging every
+  rate below the truth. The window ends yesterday. The exception is the first
+  import of the day with nothing behind it, where a low figure beats no figure;
+  the note then says today is included.
 - **Open orders with no confirmed delivery date** count towards "on order" but
   are kept off the arrival timeline, since dating them would drop the whole
   quantity onto an arbitrary day. The quantity involved is shown alongside.
