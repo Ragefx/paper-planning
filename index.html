@@ -970,7 +970,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-22 · 47';
+const BUILD = '2026-09-22 · 48';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -1221,16 +1221,20 @@ function mergeStates(local, remote) {
     }
   }
 
-  // Movements — union by the same key the importer deduplicates on.
-  const seen = new Set();
+  // Movements — union by the same key the importer deduplicates on. Where
+  // both sides hold the same row but only one carries a time of entry (one
+  // machine imported a richer export than the other), keep that one rather
+  // than whichever happened to be seen first.
+  const seen = {};
   for (const src of [local, remote]) {
     for (const m of (src.movements || [])) {
       const k = m.key || movementKey(m);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      out.movements.push(m.key ? m : { ...m, key: k });
+      const row = m.key ? m : { ...m, key: k };
+      const prior = seen[k];
+      if (!prior || (row.time !== undefined && prior.time === undefined)) seen[k] = row;
     }
   }
+  out.movements = Object.values(seen);
   out.movements.sort((a, b) => a.date.localeCompare(b.date));
 
   // Open orders — a snapshot, so the later export replaces the earlier one
@@ -5614,18 +5618,24 @@ function previewCounts(e) {
   try {
     if (e.kind === 'movements') {
       const { rows } = extractMovements(e.rows, e.map, state.settings.signMode);
-      const known = new Set(state.movements.map(m => m.key));
-      let dup = 0, fileFrom = null, fileTo = null;
+      const byKey = {};
+      for (const m of state.movements) byKey[m.key] = m;
+      let dup = 0, timed = 0, fileFrom = null, fileTo = null;
       const fresh = new Set();
       for (const m of rows) {
         const k = movementKey(m);
-        if (known.has(k) || fresh.has(k)) dup++; else fresh.add(k);
+        const existing = byKey[k];
+        if (existing || fresh.has(k)) {
+          dup++;
+          if (existing && m.time !== undefined && existing.time === undefined) timed++;
+        } else fresh.add(k);
         // the range the file covers, which is not the range it will add
         if (!fileFrom || m.date < fileFrom) fileFrom = m.date;
         if (!fileTo   || m.date > fileTo)   fileTo   = m.date;
       }
       return { newRows: fresh.size,
-               text: fresh.size + ' new movement row(s), ' + dup + ' duplicate(s) will be skipped.' +
+               text: fresh.size + ' new movement row(s), ' + dup + ' duplicate(s) will be skipped' +
+                     (timed ? ' (' + timed + ' of them gaining a time of entry they did not have before)' : '') + '.' +
                      (fileFrom ? ' The file itself covers ' + fileFrom + ' → ' + fileTo + '.' : '') };
     }
     if (e.kind === 'stock') {
@@ -5668,16 +5678,35 @@ function commit(id) {
   if (e.kind === 'movements') {
     const res = extractMovements(e.rows, e.map, state.settings.signMode);
     warn = res.warn;
-    const known = new Set(state.movements.map(m => m.key));
+    const byKey = {};
+    for (const m of state.movements) byKey[m.key] = m;
     undo.keys = [];
+    // A row already on record is still worth one thing from a re-import: a
+    // time of entry the first import never carried, because that column
+    // wasn't in the export yet, or wasn't mapped. Without this, re-importing
+    // a now-richer file for a date that is already known silently keeps the
+    // old, timeless copy forever — the new column never reaches the database.
+    undo.timeBackfills = [];
+    let timed = 0;
     for (const m of res.rows) {
       const k = movementKey(m);
-      if (known.has(k)) { skipped++; continue; }
-      known.add(k);
-      state.movements.push({ ...m, key: k });
+      const existing = byKey[k];
+      if (existing) {
+        if (m.time !== undefined && existing.time === undefined) {
+          existing.time = m.time;
+          undo.timeBackfills.push(k);
+          timed++;
+        }
+        skipped++;
+        continue;
+      }
+      const stored = { ...m, key: k };
+      byKey[k] = stored;
+      state.movements.push(stored);
       undo.keys.push(k);
       added++;
     }
+    if (timed) warn.push(timed + ' already-known row(s) gained a time of entry from this file.');
     state.movements.sort((a, b) => a.date.localeCompare(b.date));
   } else if (e.kind === 'stock') {
     const res = extractStock(e.rows, e.map, e.snapDate);
@@ -5779,13 +5808,17 @@ function undoLastImport() {
   const u = entry.undo;
   const label = SCHEMA[entry.kind].label.toLowerCase() + ' from ' + entry.filename;
   if (!confirm('Undo the ' + label + '?\n\n' +
-      (u.kind === 'movements' ? entry.added + ' movement row(s) will be removed.'
+      (u.kind === 'movements' ? entry.added + ' movement row(s) will be removed' +
+         ((u.timeBackfills || []).length ? ', and ' + u.timeBackfills.length + ' row(s) will lose the time ' +
+           'of entry this import added to them' : '') + '.'
        : u.kind === 'stock' ? 'The stock snapshot(s) it wrote will be restored to what was there before.'
        : 'The previous open-order list (' + (u.orders || []).length + ' line(s)) will be restored.'))) return;
 
   if (u.kind === 'movements') {
     const drop = new Set(u.keys || []);
     state.movements = state.movements.filter(m => !drop.has(m.key));
+    const untime = new Set(u.timeBackfills || []);
+    if (untime.size) for (const m of state.movements) if (untime.has(m.key)) delete m.time;
   } else if (u.kind === 'stock') {
     for (const plant in (u.stock || {})) {
       for (const date in u.stock[plant]) {
