@@ -957,7 +957,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-16 · 44';
+const BUILD = '2026-09-22 · 45';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -3574,21 +3574,25 @@ function snapValue(plant, date, code) {
 
 // Actual stock for one plant across a date range.
 //
-// Forward of the first snapshot the reported figures are carried forward.
-// Behind it, stock is reconstructed by unwinding the movements — the stock at
-// the end of a day is the next day's stock minus that next day's net movement.
-// Without this the curve would be blank until a month of daily snapshots had
-// accumulated, even though the movement history to draw it is already there.
-// Reconstruction stops at the first movement on record; earlier is unknown.
+// Before the first snapshot and between two snapshots, stock is reconstructed
+// by unwinding the movements — the stock at the end of a day is the previous
+// day's stock plus that day's net movement, run backward from the first
+// snapshot for pre-history and forward from each snapshot to fill the gap
+// before the next one. A real snapshot always wins on its own date; only the
+// days in between are ever reconstructed. Without this the curve would either
+// be blank before the first import or sit flat for however long the gap
+// between stock counts runs, even though the movement history to draw it
+// properly is already there. Reconstruction stops at the first movement on
+// record going backward; there is nothing earlier to unwind.
 function actualSeries(plant, code, dates) {
   const snaps = snapDates(plant);
   if (!snaps.length) return dates.map(() => null);
   const first = snaps[0];
+  const idx = netIndex()[plant] || {};
 
   const back = {};
   const movFirst = firstMovementDate();
   if (movFirst && dates[0] < first) {
-    const idx = netIndex()[plant] || {};
     const floor = addDays(movFirst, -1);          // the day before the first movement
     let v = snapValue(plant, first, code);
     let cur = first;
@@ -3599,12 +3603,29 @@ function actualSeries(plant, code, dates) {
     }
   }
 
+  // Between two real snapshots, walk forward from the earlier one adding each
+  // day's net movement, stopping just short of the next snapshot — that date's
+  // reported figure is authoritative and is used as-is, not reconstructed. Any
+  // gap left between the reconstructed arrival and the next real count is real
+  // drift (scrap, a physical correction, reel-weight variance) that movements
+  // alone cannot explain, not a bug in the walk.
+  const fwd = {};
+  for (let i = 0; i < snaps.length - 1; i++) {
+    let v = snapValue(plant, snaps[i], code);
+    let cur = snaps[i];
+    const stop = snaps[i + 1];
+    for (cur = addDays(cur, 1); cur < stop; cur = addDays(cur, 1)) {
+      v += (idx[cur] && idx[cur][code]) || 0;
+      fwd[cur] = v;
+    }
+  }
+
   let si = -1;
   const out = [];
   for (const d of dates) {
     while (si + 1 < snaps.length && snaps[si + 1] <= d) si++;
     if (si < 0) { out.push(d in back ? back[d] : null); continue; }
-    out.push(snapValue(plant, snaps[si], code));
+    out.push(d in fwd ? fwd[d] : snapValue(plant, snaps[si], code));
   }
   return out;
 }
@@ -3771,9 +3792,10 @@ function renderWarehouse() {
   };
 
   document.getElementById('whLegendNote').innerHTML =
-    'Solid line = actual stock: reported daily snapshots, extended backwards by unwinding the movement ' +
-    'history where no snapshot was taken yet. Dashed = projection using average usage and the dated open ' +
-    'orders. Dots mark deliveries; hover for order, quantity and supplier. ' +
+    'Solid line = actual stock: reported snapshots, with the days before the first one and the gaps between ' +
+    'snapshots filled in by unwinding the movement history — a real snapshot always wins on its own date. ' +
+    'Dashed = projection using average usage and the dated open orders. Dots mark deliveries; hover for ' +
+    'order, quantity and supplier. ' +
     (undatedCount()
       ? '<strong>' + undatedCount() + ' open line(s) carry no delivery date</strong> and are left out of ' +
         'the projection — the SAP purchase-order list dates every line, where the spreadsheet export cannot. '

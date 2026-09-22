@@ -126,9 +126,12 @@ only, the all-time average uses both.
   then pull the next delivery forward or flag a shortfall if that is not
   enough. Nothing is sent anywhere; it is a worklist for the supplier or the
   fork-lift.
-- **Warehouse Movement** — a month at a time: actual stock from the daily
-  snapshots, extended backwards by unwinding the movement history for days with
-  no snapshot yet, then a dashed projection ahead. Optionally split by plant.
+- **Warehouse Movement** — a month at a time: actual stock from the reported
+  snapshots, with the days before the first one and any gap between two
+  snapshots filled in by unwinding the movement history — a reported snapshot
+  always wins on its own date, so a gap of several days between stock counts
+  is not shown as a flat line — then a dashed projection ahead from the latest
+  snapshot. Optionally split by plant.
 
   Where open lines carry no delivery date the legend names how many are being
   left out; from the SAP purchase-order list there are none.
