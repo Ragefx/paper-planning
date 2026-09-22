@@ -825,6 +825,19 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
   </div>
   <div class="kinds" id="importKinds"></div>
   <div class="card">
+    <div class="card-title">Two files for open orders</div>
+    <div class="small">
+      The <strong>orders spreadsheet</strong> (ME2M item list, .xlsx) carries the supplier's confirmation flag,
+      but the schedule-line delivery date sits one level down, so it often can't date every line. The
+      <strong>SAP purchase-order list</strong> (ME2M, scope of list <code>ALLES</code>, saved as a .txt via
+      <em>System → List → Save → Local File</em>) has no confirmation flag, but dates every line whether or not
+      the supplier has confirmed, and carries the true outstanding quantity. Import both when you can: the app
+      keeps the confirmation flags from the spreadsheet and the dates from the list, so a not-yet-confirmed order
+      still gets a real delivery date and shows up in the charts, instead of being left out of every projection
+      for want of one. The list needs no column mapping — its printed layout is recognised on drop.
+    </div>
+  </div>
+  <div class="card">
     <div class="card-title">Upload</div>
     <div class="drop" id="dropZone">
       <div class="drop-title">Drop .xlsx / .xls / .csv / .txt files here</div>
@@ -957,7 +970,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-22 · 46';
+const BUILD = '2026-09-22 · 47';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -1867,7 +1880,8 @@ const SCHEMA = {
   },
   orders: {
     label: 'Open orders',
-    hint: 'Purchase order lines. Only lines with a GR quantity of 0 are kept.',
+    hint: 'Purchase order lines. Either the ME2M spreadsheet (confirmation flag, GR = 0 kept) or the ' +
+      'purchase-order list .txt (dates every line, confirmed or not) — see “Two files for open orders” above.',
     fields: [
       { k: 'po',       label: 'Order number',  req: true,  aliases: ['purchasing document', 'purchase order', 'po number', 'po no', 'order', 'ebeln', 'narocilo', 'bestellung', 'document number'] },
       { k: 'material', label: 'Material',      req: true,  aliases: ['material', 'material number', 'matnr', 'sifra', 'sifra materiala', 'artikel'] },

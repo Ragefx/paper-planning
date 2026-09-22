@@ -265,11 +265,17 @@ the database whatever the verdict, which is what the JSON backup is for.
 
 ## Open orders: two sources
 The spreadsheet export (ME2M at item level) has no delivery date, because the
-date lives on the schedule line one level down. The app therefore also reads the
-**SAP purchase-order list** — ME2M with scope of list `ALLES`, saved through
-*System → List → Save → Local File* as a `.txt`. That is a printed report rather
-than a table, so it is recognised by its layout and parsed by shape; it needs no
-column mapping. Drop it on the Import page like any other file.
+date lives on the schedule line one level down. In practice that means a line
+the supplier hasn't confirmed yet often has no date at all in that export — and
+an undated line can't be placed on a timeline, so it simply drops out of every
+projection. The app therefore also reads the **SAP purchase-order list** — ME2M
+with scope of list `ALLES`, saved through *System → List → Save → Local File*
+as a `.txt`. This is what finds a delivery date for an order that isn't
+confirmed yet: it dates every line regardless of acknowledgement, which is the
+one thing the spreadsheet can't do. Uploading it regularly, alongside the
+spreadsheet, is the recommended way to run this. It is a printed report rather
+than a table, so it is recognised by its layout and parsed by shape; it needs
+no column mapping. Drop it on the Import page like any other file.
 
 It carries, on every line, what the spreadsheet cannot:
 
