@@ -957,7 +957,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-22 · 45';
+const BUILD = '2026-09-22 · 46';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -1753,6 +1753,33 @@ function num(v) {
   return neg ? -n : n;
 }
 
+// A time of day, as minutes since midnight — from an Excel time cell (parsed
+// as a Date, or still a bare serial fraction of a day), "17:45" / "17:45:00",
+// or SAP's own unseparated TIME format ("174500" / "1745"). Anything that
+// doesn't parse to a real time returns null rather than a guess.
+function parseTime(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (v instanceof Date && !isNaN(v)) {
+    const mins = v.getUTCHours() * 60 + v.getUTCMinutes();
+    return mins < 24 * 60 ? mins : null;
+  }
+  if (typeof v === 'number' && isFinite(v)) {
+    const frac = v - Math.floor(v);
+    const mins = Math.round(frac * 24 * 60);
+    return mins >= 0 && mins < 24 * 60 ? mins : null;
+  }
+  const s = String(v).trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) m = s.match(/^(\d{2})(\d{2})(?:\d{2})?$/);   // SAP raw TIME: HHMMSS / HHMM
+  if (!m) return null;
+  const h = Number(m[1]), mi = Number(m[2]);
+  return h < 24 && mi < 60 ? h * 60 + mi : null;
+}
+function fmtTime(mins) {
+  return String(Math.floor(mins / 60)).padStart(2, '0') + ':' + String(mins % 60).padStart(2, '0');
+}
+
 // Excel serial dates, ISO, and the dd.mm.yyyy / dd/mm/yyyy family.
 function dateISO(v) {
   if (v === null || v === undefined || v === '') return null;
@@ -1833,6 +1860,9 @@ const SCHEMA = {
       { k: 'partner',  label: 'Supplier',      req: false, aliases: ['goods supplier name', 'name of vendor', 'supplier name', 'vendor name', 'name 1', 'dobavitelj', 'lieferant', 'vendor', 'supplier', 'customer', 'kupec', 'partner'] },
       { k: 'rplant',   label: 'Receiving plant', req: false, aliases: ['receiving plant', 'rec plant', 'issuing plant', 'destination plant', 'plant received', 'umwerk', 'ciljni obrat'] },
       { k: 'special',  label: 'Special stock', req: false, aliases: ['special stock', 'special stock indicator', 'sobkz', 'stock type', 'konsignacija'] },
+      // When present, lets a past day on Warehouse Movement say what time its
+      // last posting actually went in, rather than just its date.
+      { k: 'time',     label: 'Time of entry', req: false, aliases: ['time of entry', 'entry time', 'posting time', 'pstng time', 'time', 'zeit', 'uhrzeit', 'ura'] },
     ],
   },
   orders: {
@@ -2050,10 +2080,11 @@ function extractMovements(rows, map, signMode) {
     const qty = num(pick(r, map, 'qty'));
     const date = dateISO(pick(r, map, 'date'));
     const plant = plantCode(pick(r, map, 'plant'));
+    const time = parseTime(pick(r, map, 'time'));
     if (!code || !mvt || qty === null) continue;
     if (!date) { badDate++; continue; }
     if (!MVT[mvt]) { unknownMvt++; continue; }
-    parsed.push({ r, code, mvt, qty, date, plant });
+    parsed.push({ r, code, mvt, qty, date, plant, time });
   }
   // Auto sign detection: trust the file when it already distinguishes
   // receipts from issues, otherwise derive the sign from the movement type.
@@ -2072,6 +2103,7 @@ function extractMovements(rows, map, signMode) {
       ref: pick(p.r, map, 'ref') ? String(pick(p.r, map, 'ref')).trim() : '',
       special: pick(p.r, map, 'special') ? String(pick(p.r, map, 'special')).trim().toUpperCase() : '',
       partner: pick(p.r, map, 'partner') ? String(pick(p.r, map, 'partner')).trim() : '',
+      ...(p.time !== null ? { time: p.time } : {}),
     };
     noteMaterial(p.code, pick(p.r, map, 'desc'), pick(p.r, map, 'unit'));
     out.push({ ...base, plant: p.plant, qty: signed });
@@ -2402,6 +2434,12 @@ function usageTotal(code, basis) {
     for (const d in bp) if (d >= w.from && d <= w.to) sum += bp[d];
   }
   return Math.max(0, sum);
+}
+
+// Whether any imported movement carries a time of entry — the Warehouse
+// Movement legend only promises a per-day time when this is true.
+function hasMovementTimes() {
+  return memo('hasMovTimes', () => state.movements.some(m => m.time !== undefined));
 }
 
 // Net signed movement per plant and date, with a rolled-up '__all__' total.
@@ -3636,7 +3674,7 @@ function actualSeries(plant, code, dates) {
 function dayPostings(codes, mk, scope) {
   const want = new Set(codes);
   const out = {};
-  const bucket = d => out[d] || (out[d] = { received: 0, used: 0, moved: 0 });
+  const bucket = d => out[d] || (out[d] = { received: 0, used: 0, moved: 0, lastTime: null });
   for (const m of state.movements) {
     if (!m.date.startsWith(mk)) continue;
     if (!want.has(m.code)) continue;
@@ -3648,6 +3686,9 @@ function dayPostings(codes, mk, scope) {
     if (kind === 'receipt' && ownStock(m)) b.received += m.qty;
     else if (USAGE_MVT.indexOf(m.mvt) > -1) b.used -= m.qty;
     else if (kind === 'transfer' && ownStock(m)) b.moved += m.qty;
+    // The latest posting of the day, of any kind — when the export carries a
+    // time at all, this is when the day's SAP activity actually stopped.
+    if (m.time !== undefined && (b.lastTime === null || m.time > b.lastTime)) b.lastTime = m.time;
   }
   return out;
 }
@@ -3778,6 +3819,9 @@ function renderWarehouse() {
     if (Math.round(a.moved)) {
       rows.push('Transfer  ' + (a.moved > 0 ? '+' : '') + fmt(a.moved, 0) + ' kg');
     }
+    // When the export carries a time, the day's stock figure is only as fresh
+    // as its last posting — worth stating rather than leaving as "today".
+    if (a.lastTime !== null) rows.push('As of     ' + fmtTime(a.lastTime));
     return rows;
   };
 
@@ -3796,6 +3840,7 @@ function renderWarehouse() {
     'snapshots filled in by unwinding the movement history — a real snapshot always wins on its own date. ' +
     'Dashed = projection using average usage and the dated open orders. Dots mark deliveries; hover for ' +
     'order, quantity and supplier. ' +
+    (hasMovementTimes() ? 'A past day also states the time of its last posting, where the movements export carries one. ' : '') +
     (undatedCount()
       ? '<strong>' + undatedCount() + ' open line(s) carry no delivery date</strong> and are left out of ' +
         'the projection — the SAP purchase-order list dates every line, where the spreadsheet export cannot. '

@@ -133,6 +133,13 @@ only, the all-time average uses both.
   is not shown as a flat line — then a dashed projection ahead from the latest
   snapshot. Optionally split by plant.
 
+  Every number on the chart, real or reconstructed, is a closing balance for
+  its day — previous day plus everything posted that day. Where the movements
+  export carries a time of entry (map "Time of Entry" or your export's
+  equivalent under Edit column mapping), hovering a past day also states the
+  clock time of its last posting, so "stock on the 21st" reads as "stock at
+  17:45 on the 21st" rather than an unstated end of day.
+
   Where open lines carry no delivery date the legend names how many are being
   left out; from the SAP purchase-order list there are none.
 
