@@ -23,13 +23,24 @@ does not. Where an export posts a 301 as a single line with a receiving plant,
 it is mirrored into that plant; MB51-style exports that already post both legs
 are used as they are.
 
-### Stock policy
+### Stock levels
 
-Four levels — minimum, ideal, maximum, over-max — set in **days of production
-at the planned rate**, so each material gets its own quantities without anyone
-maintaining a table of kilos. Minimum triggers an order and ideal sizes it;
-maximum and over-max only warn. Lead time and order multiple sit alongside
-them, and all of it lives on the Production Planning tab.
+Every level the app works to lives in one place, **Settings → Stock levels**,
+and every page reads it from there:
+
+- **Stockout warning** — critical and low, in days until a grade runs out
+  with deliveries counted. These colour the Overview and All Materials.
+- **Cover, site default** — minimum (14 days by default), ideal, maximum and
+  over-max, in **days of production**, so each grade gets its own quantities
+  from its own usage without anyone maintaining a table of kilos. Production
+  Planning orders below minimum and sizes back to ideal; Stock Balancing
+  pushes back what a grade doesn't need to stay at ideal; Material Forecast
+  draws minimum and maximum as dotted lines.
+- **Ordering** — supplier lead time and order multiple.
+- **Per-grade levels** — a grade that can be had in a week needs less than one
+  on a two-month lead time, so any grade can have its own minimum and maximum.
+  The Min / Max boxes on Material Forecast edit the same list; a grade without
+  its own falls back to the site default.
 
 ### Working days
 
@@ -111,10 +122,9 @@ only, the all-time average uses both.
   takes typing as well as picking — a code or any part of a description finds
   the grade.
 
-  Each material carries its own minimum and maximum stock, set in days of
-  cover next to the usage basis and horizon; the minimum defaults to 14 days
-  and the maximum to the site-wide policy level, and either is overridden per
-  material and saved. Both are drawn on the chart as dotted lines, converted
+  The Min / Max boxes next to the usage basis and horizon show the grade's
+  levels from Settings → Stock levels — the site default until a grade is given
+  its own, which is saved to the same per-grade list Settings shows. Both are drawn on the chart as dotted lines, converted
   to kilograms at the usage basis currently selected, so changing the basis
   moves them.
 
@@ -139,6 +149,20 @@ only, the all-time average uses both.
   equivalent under Edit column mapping), hovering a past day also states the
   clock time of its last posting, so "stock on the 21st" reads as "stock at
   17:45 on the 21st" rather than an unstated end of day.
+
+  A stock count is rarely taken at the close — MB52 is usually run in the
+  morning. So each stock import carries a **Counted at** time beside its date,
+  filled in from the file's own save time when that falls on the snapshot
+  date, and editable. Once a count day is over, the chart shows it at its
+  close: the count plus everything posted after the count time that day, and
+  the tooltip says so ("Count 07:00, −5,000 kg after"). Today's count is left
+  as it is, because it is the stock right now and the projection starts from
+  it. Without a count time, a count is taken as that day's close.
+
+  A working day with no movements at all, anywhere on site, is almost always
+  a missed import, and every usage average spanning it reads low. The
+  Overview's "What needs doing" lists such days; import them, or mark them
+  closed under Settings → Holidays if the line really stood still.
 
   Where open lines carry no delivery date the legend names how many are being
   left out; from the SAP purchase-order list there are none.

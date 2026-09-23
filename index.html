@@ -225,6 +225,13 @@ body {
   font-family: var(--font-mono); }
 .plant-grid dd { margin: 2px 0 0; font-size: 15px; font-weight: 500; color: var(--text-0); }
 .plant-grid dd small { font-size: 11px; font-weight: 400; color: var(--text-2); }
+.lv-group { padding: 14px 0; border-top: 1px solid var(--rule); }
+.lv-group:first-of-type { border-top: none; padding-top: 0; }
+.lv-head { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--text-1); margin-bottom: 10px; }
+.lv-head span { font-family: var(--font-sans); font-weight: 400; letter-spacing: 0; text-transform: none;
+  color: var(--text-2); margin-left: 8px; }
+.lv-table td input { width: 76px; }
 .plant-note { margin-top: 12px; font-size: 11.5px; line-height: 1.5; color: var(--text-1);
   display: flex; align-items: flex-start; gap: 7px; }
 .plant-note b { font-weight: 600; }
@@ -707,20 +714,8 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
   </div>
 
   <div class="card">
-    <div class="card-title">Stock policy</div>
-    <div class="small" style="margin-bottom:10px">
-      Set in days of production at the planned rate, so each material gets its own quantities.
-      An order is proposed whenever stock is projected to fall below <strong>minimum</strong>, sized to bring it back to <strong>ideal</strong>.
-      <strong>Maximum</strong> and <strong>over-max</strong> only warn — nothing is ordered that would breach them.
-    </div>
-    <div class="controls">
-      <label class="fld">Minimum (days) <input type="number" id="polMin" min="0" step="0.5" style="width:100px"></label>
-      <label class="fld">Ideal (days) <input type="number" id="polIdeal" min="0" step="0.5" style="width:100px"></label>
-      <label class="fld">Maximum (days) <input type="number" id="polMax" min="0" step="0.5" style="width:100px"></label>
-      <label class="fld">Over-max (days) <input type="number" id="polXMax" min="0" step="0.5" style="width:110px"></label>
-      <label class="fld">Supplier lead time (days) <input type="number" id="polLead" min="0" step="1" style="width:140px"></label>
-      <label class="fld">Order multiple (kg) <input type="number" id="polLot" min="1" step="1000" style="width:130px"></label>
-    </div>
+    <div class="card-title">Stock levels</div>
+    <div id="planPolicy" class="small"></div>
   </div>
 
   <div class="stats" id="planStats"></div>
@@ -870,11 +865,58 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
       <label class="fld">Warehouse plant <input type="text" id="setPlantWh" style="width:100px"></label>
     </div>
   </div>
+  <div class="card" id="stockLevelsCard">
+    <div class="card-title">Stock levels</div>
+    <div class="small" style="margin-bottom:12px">
+      The one place every level in the app comes from — the Overview and All Materials colours, the orders
+      Production Planning proposes, what Stock Balancing says can be pushed back, and the dotted lines on
+      Material Forecast. Cover is set in <strong>days of production</strong>, so each grade gets its own quantities
+      from its own usage.
+    </div>
+    <div class="lv-group">
+      <div class="lv-head">Stockout warning <span>days until a grade runs out, deliveries included</span></div>
+      <div class="row">
+        <label class="fld">Critical within (days) <input type="number" id="setCrit" min="0" step="1" style="width:100px"></label>
+        <label class="fld">Low within (days) <input type="number" id="setLow" min="0" step="1" style="width:100px"></label>
+      </div>
+    </div>
+    <div class="lv-group">
+      <div class="lv-head">Cover, site default <span>used for every grade without its own levels below</span></div>
+      <div class="row">
+        <label class="fld">Minimum (days) <input type="number" id="polMin" min="0" step="0.5" style="width:100px"></label>
+        <label class="fld">Ideal (days) <input type="number" id="polIdeal" min="0" step="0.5" style="width:100px"></label>
+        <label class="fld">Maximum (days) <input type="number" id="polMax" min="0" step="0.5" style="width:100px"></label>
+        <label class="fld">Over-max (days) <input type="number" id="polXMax" min="0" step="0.5" style="width:110px"></label>
+      </div>
+      <div class="small" style="margin-top:8px">Production Planning proposes an order when a grade would fall below
+        <strong>minimum</strong>, sized to bring it back to <strong>ideal</strong>. <strong>Maximum</strong> and
+        <strong>over-max</strong> only warn, and are what Stock Balancing works down to.</div>
+    </div>
+    <div class="lv-group">
+      <div class="lv-head">Ordering</div>
+      <div class="row">
+        <label class="fld">Supplier lead time (days) <input type="number" id="polLead" min="0" step="1" style="width:140px"></label>
+        <label class="fld">Order multiple (kg) <input type="number" id="polLot" min="1" step="1000" style="width:130px"></label>
+      </div>
+    </div>
+    <div class="lv-group">
+      <div class="lv-head">Per-grade levels <span>a grade that can be had in a week needs less than one on a two-month lead time</span></div>
+      <div id="levelOverrides"></div>
+      <div class="row" style="margin-top:10px">
+        <label class="fld" style="flex:0 1 240px;min-width:170px">Grade
+          <input id="lvAddCode" list="lvCodeList" autocomplete="off" spellcheck="false" placeholder="code or description">
+          <datalist id="lvCodeList"></datalist>
+        </label>
+        <label class="fld">Min (days) <input type="number" id="lvAddMin" min="0" step="1" style="width:88px"></label>
+        <label class="fld">Max (days) <input type="number" id="lvAddMax" min="0" step="1" style="width:88px"></label>
+        <button class="btn" id="lvAdd" type="button">Add</button>
+      </div>
+      <div class="small" style="margin-top:8px">The Min / Max boxes on Material Forecast edit this same list.</div>
+    </div>
+  </div>
   <div class="card">
     <div class="card-title">Thresholds &amp; behaviour</div>
     <div class="row">
-      <label class="fld">Critical below (days) <input type="number" id="setCrit" min="0" step="1" style="width:100px"></label>
-      <label class="fld">Low below (days) <input type="number" id="setLow" min="0" step="1" style="width:100px"></label>
       <label class="fld">Machines run
         <select id="setUsageDays">
           <option value="work">Monday to Friday</option>
@@ -970,7 +1012,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-23 · 49';
+const BUILD = '2026-09-23 · 50';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -998,7 +1040,7 @@ const DEFAULTS = {
   spikeFactor: 0,
   usageDays: 'work',        // 'work' = machines run Mon–Fri, 'all' = every day
   // Stock policy, in days of production at the planned rate
-  minDays: 5,
+  minDays: 14,
   idealDays: 15,
   maxDays: 30,
   extraMaxDays: 45,
@@ -1034,6 +1076,7 @@ let state = {
   orderFlags: {},  // 'po|item' -> { confirmed, asOf } — outlives the order list
   orderSuppliers: {},  // purchase order -> the mill named by the spreadsheet
   stockLevels: {},     // material -> { min, max } in days of cover, set by hand
+  stockTimes: {},      // plant -> date -> minutes: when that day's stock count was taken
   migrations: {},  // one-off corrections already applied to this database
   plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {} },
   plans: {},      // 'YYYY-MM' -> the plan as it stood when saved
@@ -1097,6 +1140,14 @@ function migrateSettings(s, done) {
     if (Number(s.target.SI10)   === 2100) s.target.SI10   = 1320;
     done.si10cap = 1;
   }
+  // The site minimum and the per-grade default minimum used to be two numbers
+  // (5 days on Production Planning, 14 on Material Forecast). They are one now,
+  // and 14 is the default asked for. A value someone chose themselves is kept.
+  if (!done.levelsMerged) {
+    if (Number(s.minDays) === 5) s.minDays = 14;
+    if (Number(s.idealDays) < Number(s.minDays)) s.idealDays = s.minDays;
+    done.levelsMerged = 1;
+  }
   return s;
 }
 
@@ -1135,6 +1186,7 @@ function loadState() {
           state.orderFlags = r.orderFlags || {};
           state.orderSuppliers = r.orderSuppliers || {};
           state.stockLevels = r.stockLevels || {};
+          state.stockTimes = r.stockTimes || {};
           state.ordersSource = r.ordersSource || null;
           state.migrations = { ...(r.migrations || {}) };
           migrateSettings(state.settings, state.migrations);
@@ -1218,6 +1270,16 @@ function mergeStates(local, remote) {
     for (const plant in (src.stock || {})) {
       out.stock[plant] = out.stock[plant] || {};
       for (const date in src.stock[plant]) out.stock[plant][date] = src.stock[plant][date];
+    }
+  }
+  // A count time belongs to one copy of a snapshot, so it is taken from the
+  // same side the snapshot was — never an older side's time on a newer count.
+  out.stockTimes = {};
+  for (const plant in out.stock) {
+    for (const date in out.stock[plant]) {
+      const src = newer.stock && newer.stock[plant] && newer.stock[plant][date] ? newer : older;
+      const t = ((src.stockTimes || {})[plant] || {})[date];
+      if (t !== undefined && t !== null) (out.stockTimes[plant] || (out.stockTimes[plant] = {}))[date] = t;
     }
   }
 
@@ -1792,6 +1854,13 @@ function parseTime(v) {
   if (!m) return null;
   const h = Number(m[1]), mi = Number(m[2]);
   return h < 24 && mi < 60 ? h * 60 + mi : null;
+}
+// Minutes since midnight of a timestamp, but only when it falls on the given
+// local date — a file saved yesterday says nothing about a count dated today.
+function timeOnDate(ms, iso) {
+  if (!ms) return null;
+  const d = new Date(ms);
+  return toISO(d) === iso ? d.getHours() * 60 + d.getMinutes() : null;
 }
 function fmtTime(mins) {
   return String(Math.floor(mins / 60)).padStart(2, '0') + ':' + String(mins % 60).padStart(2, '0');
@@ -2718,6 +2787,24 @@ function spanText(sp) {
          ' (' + fmt(sp.days, 0) + ' days, ' + fmt(sp.workdays, 0) + ' worked)';
 }
 
+// Working days on which nothing at all was posted, site-wide, between the
+// first movement on record and yesterday (today is still running). The line
+// consumes paper every day it runs, so a working day with no posting of any
+// kind is a day whose movements never made it in — and every usage average
+// that spans it reads low. A day the line genuinely stood still belongs under
+// Settings → Holidays, which takes it off this list.
+function missingMovementDays() {
+  return memo('missingDays', () => {
+    const first = firstMovementDate();
+    if (!first) return [];
+    const posted = new Set(state.movements.map(m => m.date));
+    const until = addDays(todayISO(), -1);
+    const out = [];
+    for (let d = first; d <= until; d = addDays(d, 1)) if (isRunDay(d) && !posted.has(d)) out.push(d);
+    return out;
+  });
+}
+
 function dataAgeDays() {
   const last = lastMovementDate();
   return last ? daysBetween(last, todayISO()) : null;
@@ -3199,20 +3286,28 @@ function mostUrgentCode() {
   }
   return best;
 }
-// The site-wide policy on Production Planning sizes orders for every grade at
-// once. Lead times do not work that way — one mill delivers inside a week,
-// another takes two months — so each material carries its own floor and
-// ceiling, in days of cover, and falls back to these when it has none.
-const LEVEL_MIN_DAYS = 14;
-function materialLevels(code) {
+// Every level the app works to comes from here: the site defaults in Settings,
+// overridden per grade where a grade has its own. Lead times differ by mill —
+// one delivers inside a week, another takes two months — so a grade may need a
+// higher floor than the site as a whole. Production Planning, Stock Balancing
+// and Material Forecast all read this, so a level set once means the same
+// thing on every page.
+function levelsFor(code) {
+  const pol = policyDays();
   const saved = (state.stockLevels || {})[code] || {};
   const set = k => saved[k] !== undefined && saved[k] !== null && saved[k] !== '';
-  return {
-    min: set('min') ? Number(saved.min) : LEVEL_MIN_DAYS,
-    max: set('max') ? Number(saved.max) : (policyDays().max || 0),
-    minSet: set('min'), maxSet: set('max'),
-  };
+  const min = set('min') ? Number(saved.min) : pol.min;
+  // A grade given a floor above the site maximum, but no ceiling of its own,
+  // takes its floor as its ceiling rather than one below it.
+  const max = set('max') ? Number(saved.max) : Math.max(pol.max, min);
+  // Ideal sits between the two, so a grade whose own minimum is above the site
+  // ideal is not ordered back up to less than its own floor.
+  let ideal = Math.max(pol.ideal, min);
+  if (max > 0 && ideal > max) ideal = Math.max(min, max);
+  const xmax = Math.max(pol.xmax, max);
+  return { min, ideal, max, xmax, minSet: set('min'), maxSet: set('max') };
 }
+function materialLevels(code) { return levelsFor(code); }
 function setMaterialLevel(code, which, value) {
   const levels = { ...(state.stockLevels || {}) };
   const cur = { ...(levels[code] || {}) };
@@ -3302,7 +3397,7 @@ function renderForecast() {
   // Only a level actually set is written into the box; a default is left as a
   // placeholder so it is clear nothing has been decided for this grade yet.
   minBox.value = levels.minSet ? levels.min : '';
-  minBox.placeholder = String(LEVEL_MIN_DAYS);
+  minBox.placeholder = String(policyDays().min);
   maxBox.value = levels.maxSet ? levels.max : '';
   maxBox.placeholder = String(policyDays().max || 0);
 
@@ -3631,6 +3726,38 @@ function snapValue(plant, date, code) {
   return code === '__all__' ? Object.values(snap).reduce((a, b) => a + b, 0) : (snap[code] || 0);
 }
 
+// A stock count taken during a day, brought to that day's close: the count plus
+// everything posted after it. Only for a day that is over — today's count is
+// the stock right now, and the projection starts from it. Without a count
+// time, or for movements that carry no time of entry, the count is taken as
+// the close, as it always was.
+function movementsOn(date) {
+  return (memo('movByDate', () => {
+    const by = {};
+    for (const m of state.movements) (by[m.date] || (by[m.date] = [])).push(m);
+    return by;
+  })[date]) || [];
+}
+function countTime(plant, date) {
+  const t = ((state.stockTimes || {})[plant] || {})[date];
+  return t === undefined || t === null ? null : t;
+}
+function postedAfterCount(plant, date, code) {
+  const t = countTime(plant, date);
+  if (t === null) return 0;
+  let sum = 0;
+  for (const m of movementsOn(date)) {
+    if (m.plant !== plant || !ownStock(m) || m.time === undefined || m.time <= t) continue;
+    if (code !== '__all__' && m.code !== code) continue;
+    sum += m.qty;
+  }
+  return sum;
+}
+function snapClose(plant, date, code) {
+  const v = snapValue(plant, date, code);
+  return date < todayISO() ? v + postedAfterCount(plant, date, code) : v;
+}
+
 // Actual stock for one plant across a date range.
 //
 // Before the first snapshot and between two snapshots, stock is reconstructed
@@ -3641,7 +3768,8 @@ function snapValue(plant, date, code) {
 // days in between are ever reconstructed. Without this the curve would either
 // be blank before the first import or sit flat for however long the gap
 // between stock counts runs, even though the movement history to draw it
-// properly is already there. Reconstruction stops at the first movement on
+// properly is already there. A past count day reads as its close — the count
+// plus what was posted after it (snapClose). Reconstruction stops at the first movement on
 // record going backward; there is nothing earlier to unwind.
 function actualSeries(plant, code, dates) {
   const snaps = snapDates(plant);
@@ -3653,7 +3781,7 @@ function actualSeries(plant, code, dates) {
   const movFirst = firstMovementDate();
   if (movFirst && dates[0] < first) {
     const floor = addDays(movFirst, -1);          // the day before the first movement
-    let v = snapValue(plant, first, code);
+    let v = snapClose(plant, first, code);
     let cur = first;
     while (cur > floor && cur > dates[0]) {
       v -= (idx[cur] && idx[cur][code]) || 0;
@@ -3670,7 +3798,7 @@ function actualSeries(plant, code, dates) {
   // alone cannot explain, not a bug in the walk.
   const fwd = {};
   for (let i = 0; i < snaps.length - 1; i++) {
-    let v = snapValue(plant, snaps[i], code);
+    let v = snapClose(plant, snaps[i], code);
     let cur = snaps[i];
     const stop = snaps[i + 1];
     for (cur = addDays(cur, 1); cur < stop; cur = addDays(cur, 1)) {
@@ -3684,7 +3812,7 @@ function actualSeries(plant, code, dates) {
   for (const d of dates) {
     while (si + 1 < snaps.length && snaps[si + 1] <= d) si++;
     if (si < 0) { out.push(d in back ? back[d] : null); continue; }
-    out.push(d in fwd ? fwd[d] : snapValue(plant, snaps[si], code));
+    out.push(d in fwd ? fwd[d] : snapClose(plant, snaps[si], code));
   }
   return out;
 }
@@ -3843,6 +3971,17 @@ function renderWarehouse() {
     // When the export carries a time, the day's stock figure is only as fresh
     // as its last posting — worth stating rather than leaving as "today".
     if (a.lastTime !== null) rows.push('As of     ' + fmtTime(a.lastTime));
+    // On a past count day the figure is the count brought to the close, so say
+    // when the count was and how much was added on top of it.
+    if (d < today) {
+      const plants = whScope === 'both' || whScope === 'split' ? PLANTS() : [whScope];
+      const counted = plants.filter(pl => countTime(pl, d) !== null && (state.stock[pl] || {})[d]);
+      if (counted.length) {
+        const after = counted.reduce((sum, pl) => sum + postedAfterCount(pl, d, code), 0);
+        rows.push('Count     ' + counted.map(pl => (counted.length > 1 ? pl + ' ' : '') + fmtTime(countTime(pl, d))).join(' · ') +
+                  (Math.round(after) ? ', ' + (after > 0 ? '+' : '') + fmt(after, 0) + ' kg after' : ''));
+      }
+    }
     return rows;
   };
 
@@ -4121,7 +4260,8 @@ function buildOrderPlan() {
 
     // Policy levels are days of production at the rate this plan implies.
     const refRate = planRate > 0 ? planRate : preRate;
-    const lv = { min: refRate * pol.min, ideal: refRate * pol.ideal, max: refRate * pol.max, xmax: refRate * pol.xmax };
+    const own = levelsFor(code);
+    const lv = { min: refRate * own.min, ideal: refRate * own.ideal, max: refRate * own.max, xmax: refRate * own.xmax };
     aggMin += lv.min; aggIdeal += lv.ideal; aggMax += lv.max; aggXMax += lv.xmax;
 
     // Existing open orders, overdue ones pulled to the start like everywhere else.
@@ -4196,6 +4336,17 @@ function renderPlanning() {
   const plan = buildOrderPlan();
   const { kg, sqm, gsm, waste } = planInputs();
   const pol = policyDays();
+  const own = Object.keys(state.stockLevels || {}).length;
+  document.getElementById('planPolicy').innerHTML =
+    'Orders are proposed below <strong>' + fmt(pol.min, 1) + '</strong> days of cover and sized back to <strong>' +
+    fmt(pol.ideal, 1) + '</strong>; maximum <strong>' + fmt(pol.max, 1) + '</strong>, over-max <strong>' +
+    fmt(pol.xmax, 1) + '</strong>. Lead time ' + fmt(pol.lead, 0) + ' days, order multiple ' + fmt(pol.lot, 0) + ' kg. ' +
+    (own ? '<strong>' + own + '</strong> grade(s) use their own levels instead. ' : '') +
+    '<a href="#" class="drill" id="planPolicyEdit">Change in Settings →</a>';
+  document.getElementById('planPolicyEdit').onclick = e => {
+    e.preventDefault(); go('settings');
+    document.getElementById('stockLevelsCard').scrollIntoView({ block: 'start' });
+  };
   const late = plan.proposals.filter(o => o.orderBy < todayISO());
   const totalOrder = plan.proposals.reduce((s, o) => s + o.qty, 0);
   const existingTotal = plan.rows.reduce((s, r) => s + r.existingInMonth, 0);
@@ -4616,6 +4767,24 @@ function renderOverviewTodo(f) {
       page: 'import', link: 'Import fresh files' });
   }
 
+  // Holes inside the history. Days after the newest posting are the data-age
+  // item's business once it fires, so they are not counted twice.
+  const missing = missingMovementDays().filter(d => age === null || age < 3 || d <= lastMovementDate());
+  if (missing.length) {
+    const w = usageWindow('30');
+    const inWindow = w ? missing.filter(d => d >= w.from && d <= w.to).length : 0;
+    const shown = missing.slice(-6).map(shortDate).join(', ') +
+      (missing.length > 6 ? ' and ' + (missing.length - 6) + ' earlier' : '');
+    items.push({ lvl: inWindow ? 'crit' : 'warn',
+      title: 'No movements for ' + missing.length + ' working day' + (missing.length === 1 ? '' : 's'),
+      text: 'Nothing is posted for ' + shown + '. ' +
+            (inWindow
+              ? inWindow + ' of them fall inside the 30-day average, which therefore reads low — and every day of cover reads long. '
+              : 'They are older than the 30-day average, but the longer averages and History still count them. ') +
+            'Import those days\u2019 movements, or mark them closed under Settings \u2192 Holidays if the line did not run.',
+      page: 'import', link: 'Go to Import' });
+  }
+
   if (bal) {
     if (bal.combined && bal.combined.over > 0) {
       items.push({ lvl: 'crit', title: t(bal.combined.over) + ' t more paper than the site can hold',
@@ -4892,9 +5061,6 @@ function buildDeferPlan() {
   const start = todayISO();
   const days = Math.max(7, Number(state.settings.balanceDays) || 45);
   const last = addDays(start, days);
-  const pol = policyDays();
-  const floorDays = pol.ideal || pol.min || 0;
-
   const out = [];
   let freed = 0;
 
@@ -4906,6 +5072,8 @@ function buildDeferPlan() {
     if (!orders.length) continue;
 
     const onHand = stockScope(code, 'both');
+    const own = levelsFor(code);
+    const floorDays = own.ideal || own.min || 0;
     const floor = usage * floorDays;
 
     // The level on each day of the window, with a given set of orders dropped.
@@ -5009,7 +5177,7 @@ function buildDeferPlan() {
       const action = usage <= 0 ? 'review' : placed[k] ? 'defer' : 'cancel';
       out.push({
         code, po: o.po, item: o.item, qty: o.qty, plant: o.plant, vendor: o.vendor,
-        due: o.delivery, wantedOn: placed[k] || null, action,
+        due: o.delivery, wantedOn: placed[k] || null, action, floorDays,
         coverAtEnd: usage > 0 ? Math.round(finalLvl[finalLvl.length - 1] / usage) : null,
         noUsage: usage <= 0,
       });
@@ -5023,7 +5191,10 @@ function buildDeferPlan() {
   // the tab asks the question in the first place.
   const bal = safely(buildBalancePlan);
   const over = bal && bal.combined ? bal.combined.over : 0;
-  return { start, days, last, floorDays, rows: out, freed,
+  // The site figure, for sentences about the list as a whole; each row carries
+  // its own grade's floor, which may be higher.
+  const site = policyDays();
+  return { start, days, last, floorDays: site.ideal || site.min || 0, rows: out, freed,
            siteOver: over, enough: over > 0 ? freed >= over : true };
 }
 
@@ -5039,7 +5210,7 @@ function renderDefer() {
   }
   if (!d.rows.length) {
     host.innerHTML = '<div class="banner ok">Every open order is needed: dropping any one of them would take ' +
-      'its material below ' + d.floorDays + ' day(s) of cover inside the next ' + d.days + ' days.</div>';
+      'its material below its ideal cover inside the next ' + d.days + ' days.</div>';
     return;
   }
 
@@ -5080,13 +5251,13 @@ function renderDefer() {
       '<td class="small">' + (r.noUsage
         ? 'no usage recorded for this grade, so it cannot be shown to be surplus'
         : r.action === 'defer'
-          ? 'without it the grade holds ' + d.floorDays + '+ day(s) of cover until ' + esc(r.wantedOn)
+          ? 'without it the grade holds ' + r.floorDays + '+ day(s) of cover until ' + esc(r.wantedOn)
           : 'still ' + fmt(r.coverAtEnd, 0) + ' day(s) of cover at the end of the window without it') +
       '</td></tr>').join('') + '</tbody></table></div>' +
     (d.rows.length > 60 ? '<div class="small" style="margin-top:8px">Showing the largest 60 of ' +
       d.rows.length + '.</div>' : '') +
     '<div class="small" style="margin-top:8px">A line is listed only when the grade stays at or above <strong>' +
-      d.floorDays + ' day(s)</strong> of cover — the ideal level set on Production Planning — right through the ' +
+      d.floorDays + ' day(s)</strong> of cover — the ideal level in Settings, or the grade\u2019s own where it has one — right through the ' +
       'next ' + d.days + ' days without it. The latest arrivals are proposed first: a date far out is still easy ' +
       'to move, and paper already close to shipping is not. “Push to” is the day the grade would actually want ' +
       'it, so moving it there costs nothing.</div>';
@@ -5533,6 +5704,8 @@ async function handleFiles(fileList) {
           confident: wb.score >= 1,
           map: savedMapFor(wb.kind || 'stock', wb.headers),
           snapDate: todayISO(),
+          fileTime: file.lastModified || null,
+          snapTime: timeOnDate(file.lastModified, todayISO()),
           dupFile: state.imports.some(i => i.hash === hash),
           showMap: false,
         };
@@ -5566,7 +5739,13 @@ function renderStaged() {
       '</select></label>' +
       (e.kind !== 'movements'
         ? '<label class="fld">' + (e.kind === 'stock' ? 'Snapshot date' : 'As of') +
-          '<input type="date" data-date="' + e.id + '" value="' + e.snapDate + '"></label>'
+          '<input type="date" data-date="' + e.id + '" value="' + e.snapDate + '"></label>' +
+          (e.kind === 'stock'
+            ? '<label class="fld" title="When MB52 was run. Taken from the file\u2019s save time when that falls on the ' +
+              'snapshot date. Postings later that day are added on top, so a past day reads as its closing stock.">' +
+              'Counted at<input type="time" data-time="' + e.id + '" value="' +
+              (e.snapTime === null || e.snapTime === undefined ? '' : fmtTime(e.snapTime)) + '"></label>'
+            : '')
         : '') +
       '</div>';
 
@@ -5604,7 +5783,14 @@ function renderStaged() {
     e.kind = sel.value; e.map = savedMapFor(e.kind, e.headers); e.confident = true; renderStaged();
   });
   host.querySelectorAll('[data-date]').forEach(inp => inp.onchange = () => {
-    const e = staged.find(x => x.id === inp.dataset.date); e.snapDate = inp.value || todayISO(); renderStaged();
+    const e = staged.find(x => x.id === inp.dataset.date); e.snapDate = inp.value || todayISO();
+    // The file's save time only says something about the snapshot date it fell on.
+    if (!e.timeTouched) e.snapTime = timeOnDate(e.fileTime, e.snapDate);
+    renderStaged();
+  });
+  host.querySelectorAll('[data-time]').forEach(inp => inp.onchange = () => {
+    const e = staged.find(x => x.id === inp.dataset.time);
+    e.snapTime = parseTime(inp.value); e.timeTouched = true;
   });
   host.querySelectorAll('[data-togglemap]').forEach(b => b.onclick = () => {
     const e = staged.find(x => x.id === b.dataset.togglemap); e.showMap = !e.showMap; renderStaged();
@@ -5740,6 +5926,13 @@ function commit(id) {
         undo.stock[plant][date] = state.stock[plant][date] || null;
         if (state.stock[plant][date]) skipped++;
         state.stock[plant][date] = bucket[plant][date];
+        // A replaced snapshot's count time goes with it, even when the new file
+        // carries none — an old time would misplace the new count.
+        const times = state.stockTimes || (state.stockTimes = {});
+        const byPlant = times[plant] || (times[plant] = {});
+        (undo.times || (undo.times = {}))[plant + '|' + date] = byPlant[date] === undefined ? null : byPlant[date];
+        if (e.snapTime === null || e.snapTime === undefined) delete byPlant[date];
+        else byPlant[date] = e.snapTime;
       }
     }
   } else {
@@ -5839,6 +6032,11 @@ function undoLastImport() {
         else if (state.stock[plant]) delete state.stock[plant][date];
       }
       if (state.stock[plant] && !Object.keys(state.stock[plant]).length) delete state.stock[plant];
+    }
+    for (const k in (u.times || {})) {
+      const [plant, date] = k.split('|');
+      const byPlant = (state.stockTimes || (state.stockTimes = {}))[plant] || (state.stockTimes[plant] = {});
+      if (u.times[k] === null) delete byPlant[date]; else byPlant[date] = u.times[k];
     }
   } else {
     state.orders = u.orders || [];
@@ -6169,6 +6367,48 @@ function renderStorage() {
   };
 }
 
+// Grades with their own levels. The Min / Max boxes on Material Forecast write
+// to the same list, so this is where all of them can be seen at once.
+function renderLevelOverrides() {
+  const host = document.getElementById('levelOverrides');
+  if (!host) return;
+  const list = document.getElementById('lvCodeList');
+  if (list) list.innerHTML = allMaterialCodes().map(c => {
+    const m = state.materials[c];
+    return '<option value="' + esc(c) + '"' + (m && m.desc ? ' label="' + esc(m.desc) + '"' : '') + '></option>';
+  }).join('');
+  const pol = policyDays();
+  const codes = Object.keys(state.stockLevels || {}).sort();
+  if (!codes.length) {
+    host.innerHTML = '<div class="small">No grade has its own levels yet — all use the site default of ' +
+      fmt(pol.min, 0) + ' to ' + fmt(pol.max, 0) + ' days.</div>';
+    return;
+  }
+  host.innerHTML = '<div class="table-wrap"><table class="lv-table"><thead><tr>' +
+    '<th>Grade</th><th class="num">Min (days)</th><th class="num">Max (days)</th><th class="num">Min now (kg)</th><th></th>' +
+    '</tr></thead><tbody>' + codes.map(c => {
+      const own = levelsFor(c);
+      const use = avgUsage(c, '30');
+      return '<tr><td>' + esc(materialLabel(c)) + '</td>' +
+        '<td class="num"><input type="number" min="0" step="1" data-lv="' + esc(c) + '" data-which="min" value="' +
+          (own.minSet ? own.min : '') + '" placeholder="' + fmt(pol.min, 0) + '"></td>' +
+        '<td class="num"><input type="number" min="0" step="1" data-lv="' + esc(c) + '" data-which="max" value="' +
+          (own.maxSet ? own.max : '') + '" placeholder="' + fmt(pol.max, 0) + '"></td>' +
+        '<td class="num muted">' + (use > 0 ? fmt(use * own.min, 0) : '—') + '</td>' +
+        '<td><button class="btn" type="button" data-lvclear="' + esc(c) + '">Use site default</button></td></tr>';
+    }).join('') + '</tbody></table></div>';
+  host.querySelectorAll('input[data-lv]').forEach(inp => inp.onchange = () => {
+    setMaterialLevel(inp.dataset.lv, inp.dataset.which, inp.value);
+    invalidate(); renderLevelOverrides();
+  });
+  host.querySelectorAll('[data-lvclear]').forEach(b => b.onclick = () => {
+    const levels = { ...(state.stockLevels || {}) };
+    delete levels[b.dataset.lvclear];
+    state.stockLevels = levels;
+    saveState(); invalidate(); renderLevelOverrides();
+  });
+}
+
 function renderSettings() {
   const s = state.settings;
   document.getElementById('setPlantProd').value = s.plantProd;
@@ -6179,6 +6419,13 @@ function renderSettings() {
   document.getElementById('setSpike').value = s.spikeFactor || 0;
   document.getElementById('setUsageDays').value = s.usageDays || 'work';
   document.getElementById('setTol').value = Math.round((s.receiptTolerance ?? 0.30) * 100);
+  document.getElementById('polMin').value = s.minDays;
+  document.getElementById('polIdeal').value = s.idealDays;
+  document.getElementById('polMax').value = s.maxDays;
+  document.getElementById('polXMax').value = s.extraMaxDays;
+  document.getElementById('polLead').value = s.leadDays;
+  document.getElementById('polLot').value = s.lotSize;
+  renderLevelOverrides();
 
   // Mapping is header-name based, so it can be reviewed without a file open.
   document.getElementById('mapEditor').innerHTML = KINDS.map(k => {
@@ -6273,7 +6520,7 @@ function wireSettings() {
     state = { version: 1, materials: {}, stock: {}, movements: [], orders: [], ordersDate: null,
               imports: [], mappings: { stock: {}, movements: {}, orders: {} },
               settings: freshSettings(), migrations: { si10cap: 1 }, calendar: { off: {}, work: {} },
-              orderFlags: {}, orderSuppliers: {}, stockLevels: {}, plans: {}, actuals: {},
+              orderFlags: {}, orderSuppliers: {}, stockLevels: {}, stockTimes: {}, plans: {}, actuals: {},
               plan: { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {} } };
     invalidate(); saveState(true); boot();
   };
@@ -6386,13 +6633,23 @@ function wire() {
   planField('planSpread', 'spread');
   planField('planProdDays', 'prodDays', Number);
 
+  document.getElementById('lvAdd').onclick = () => {
+    const code = resolveMaterial(document.getElementById('lvAddCode').value);
+    if (!code) { notify('Pick a grade from the list first.', 'err'); return; }
+    const mn = document.getElementById('lvAddMin').value, mx = document.getElementById('lvAddMax').value;
+    if (mn === '' && mx === '') { notify('Give the grade a minimum, a maximum, or both.', 'err'); return; }
+    if (mn !== '') setMaterialLevel(code, 'min', mn);
+    if (mx !== '') setMaterialLevel(code, 'max', mx);
+    ['lvAddCode', 'lvAddMin', 'lvAddMax'].forEach(id => { document.getElementById(id).value = ''; });
+    invalidate(); renderLevelOverrides();
+  };
   // Stock policy lives in settings so the same levels apply wherever they are read.
   [['polMin', 'minDays'], ['polIdeal', 'idealDays'], ['polMax', 'maxDays'],
    ['polXMax', 'extraMaxDays'], ['polLead', 'leadDays'], ['polLot', 'lotSize']]
     .forEach(([id, key]) => {
       document.getElementById(id).onchange = e => {
         state.settings[key] = Number(e.target.value) || 0;
-        invalidate(); saveState(); renderPlanning();
+        invalidate(); saveState(); renderLevelOverrides(); renderPage(currentPage);
       };
     });
   document.getElementById('planSplitBasis').onchange = e => {
