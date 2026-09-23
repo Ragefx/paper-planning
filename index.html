@@ -864,7 +864,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
   </div>
   <div class="card">
     <div class="card-title">Plants</div>
-    <div class="small" style="margin-bottom:10px">SI10 is closed and acts as a warehouse only; SI11 is the running plant. Usage averages for 7 and 30 days use SI11 movements only, the all-time average uses both.</div>
+    <div class="small" style="margin-bottom:10px">SI10 is closed and acts as a warehouse only; SI11 is the running plant. Usage averages for 30, 60 and 90 days use SI11 movements only, the all-time average uses both.</div>
     <div class="row">
       <label class="fld">Production plant <input type="text" id="setPlantProd" style="width:100px"></label>
       <label class="fld">Warehouse plant <input type="text" id="setPlantWh" style="width:100px"></label>
@@ -970,7 +970,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-09-22 · 48';
+const BUILD = '2026-09-23 · 49';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -3236,9 +3236,12 @@ function fillMaterialInput(input, listEl) {
     const m = state.materials[c];
     return '<option value="' + esc(c) + '"' + (m && m.desc ? ' label="' + esc(m.desc) + '"' : '') + '></option>';
   }).join('');
-  const valid = c => codes.indexOf(c) > -1;
-  if (input.dataset.userPicked === '1' && valid(input.value)) return;
-  if (!valid(input.value)) input.value = codes.length ? (mostUrgentCode() || codes[0]) : '';
+  // Until someone picks a material, the page follows the most urgent one — the
+  // same rule the old dropdown had. Keeping whatever was valid first instead
+  // left it parked on the first code of the first file imported, usually a
+  // grade with no usage and nothing on order.
+  if (input.dataset.userPicked === '1' && codes.indexOf(input.value) > -1) return;
+  input.value = codes.length ? (mostUrgentCode() || codes[0]) : '';
 }
 
 // What the user typed, resolved to a material. An exact code wins; failing that
@@ -3911,7 +3914,12 @@ function renderWarehouse() {
   else host.innerHTML = '<div class="table-wrap"><table><thead><tr>' +
     '<th>Date</th><th>Order</th><th>Material</th><th class="num">Quantity</th><th>Plant</th><th>Status</th><th>Supplier</th>' +
     '</tr></thead><tbody>' + arrivals.flatMap(a => a.orders.map(o =>
-      '<tr><td class="mono">' + esc(a.date) + '</td><td class="mono">' + esc(o.po) + (o.item ? '<span class="muted">/' + esc(o.item) + '</span>' : '') + '</td>' +
+      // An overdue line is drawn landing today, but the table must not pass it
+      // off as due today: the date it was actually promised for goes with it.
+      '<tr><td class="mono">' + esc(a.date) +
+        (o.overdue ? '<div class="small" style="color:var(--crit-ink)">due ' + esc(o.delivery) + ' · ' +
+          daysBetween(o.delivery, a.date) + ' d overdue</div>' : '') + '</td>' +
+      '<td class="mono">' + esc(o.po) + (o.item ? '<span class="muted">/' + esc(o.item) + '</span>' : '') + '</td>' +
       '<td>' + esc(materialLabel(o.code)) + '</td><td class="num">' + fmt(o.qty, 0) + '</td>' +
       '<td><span class="pill ' + (o.plant === PLANT_WH() ? 'si10' : 'si11') + '">' + esc(o.plant) + '</span></td>' +
       '<td>' + statusPill(o) + '</td>' +
@@ -4448,7 +4456,7 @@ function overviewFacts() {
     per[pl] = { plant: pl, qty, cap, target, known, ...fill,
                 headroom: known && cap ? cap - qty : null,
                 peak: bal ? bal.after.peak[pl] : null,
-                over: bal && cap ? bal.after.level[pl].filter(v => v > cap).length : null };
+                over: bal && cap ? bal.after.level[pl].slice(1).filter(v => v > cap).length : null };   // today is index 0; the sentence says "the next N days"
   }
   return { prod, wh, rows, bal, per };
 }
@@ -4477,8 +4485,12 @@ function renderOverview() {
       : !p.cap
       ? { i: '·', text: 'No capacity set for ' + pl + '. Set one on Stock Balancing and this fills in.' }
       : p.over
-        ? { i: '▲', text: '<b>' + p.over + ' day(s)</b> over capacity in the next ' + bal.days +
-                          ', peaking at <b>' + t(p.peak) + ' t</b>.' }
+        // Coloured by the warning itself, not by today's fill: a plant at 56% that
+        // goes over next week is still a warning, and one over for the whole
+        // horizon is critical however full it is this morning.
+        ? { i: '▲', ink: STATUS_INK[p.over >= bal.days ? 'crit' : 'warn'],
+            text: '<b>' + p.over + ' day(s)</b> over capacity in the next ' + bal.days +
+                  ', peaking at <b>' + t(p.peak) + ' t</b>.' }
         : p.peak !== null
           ? { i: '✓', text: 'Stays inside capacity for the next ' + bal.days + ' days, peaking at <b>' +
                             t(p.peak) + ' t</b>.' }
@@ -4501,7 +4513,7 @@ function renderOverview() {
           (p.headroom < 0 ? '<span style="color:var(--crit-ink)">' + t(p.headroom) + '</span>' : t(p.headroom)) +
           ' <small>t</small>') + '</dd></div>' +
       '</dl>' +
-      '<div class="plant-note"><i style="color:' + ink + '">' + note.i + '</i><span>' + note.text + '</span></div>' +
+      '<div class="plant-note"><i style="color:' + (note.ink || ink) + '">' + note.i + '</i><span>' + note.text + '</span></div>' +
     '</div>';
   }).join('');
 
@@ -4570,6 +4582,7 @@ function renderOverviewRisk(rows) {
     go('forecast');
     const sel = document.getElementById('fcMaterial');
     sel.value = el.dataset.code;
+    sel.dataset.userPicked = '1';
     renderForecast();
   });
   host.querySelector('#ovAllRisk').onclick = e => {
