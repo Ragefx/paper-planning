@@ -15,6 +15,14 @@ questions you would otherwise rebuild in Excel each morning.
 | Movements | material document lines | appended to history, deduplicated |
 | Open orders | purchase order lines | replaces the list; only lines with GR quantity 0 are kept |
 
+Only **paper** is read. Paper grades are coded grade-grammage-width
+(`3100-135-2350`); a row for anything else — spare parts, starch, belts, which
+SAP numbers as plain codes like `4045503` — is skipped on import and named in
+the import log, so an export that wasn't limited to paper can't fill the lists
+with them. Any already in the database are removed when the app loads (with a
+note saying how many), and again after every Dropbox merge, so another
+computer's copy can't bring them back.
+
 Movement types handled: **101** goods receipt, **102** reversal, **251**
 consumption, **252** reversal, **301/302** plant-to-plant transfer, **411**
 consignment to own stock. Signs are taken from the export when it already

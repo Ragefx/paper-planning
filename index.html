@@ -1019,7 +1019,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-10-02 · 52';
+const BUILD = '2026-10-02 · 53';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -1163,6 +1163,29 @@ function migrateSettings(s, done) {
 // stuck with a fallback that read differently from every other one. A
 // description is set once and never overwritten, so this corrects it once,
 // on any machine still carrying the shorter form.
+// Takes every trace of non-paper materials out of a database: the material
+// list, stock snapshots, movements, open orders and per-grade levels. Runs on
+// every load and after every Dropbox merge, so a copy on another computer that
+// still holds them can't bring them back. Returns how many materials went.
+function dropNonPaper(st) {
+  const gone = Object.keys(st.materials || {}).filter(c => !isPaperCode(c));
+  const bad = c => !isPaperCode(c);
+  let rows = 0;
+  for (const c of gone) delete st.materials[c];
+  for (const plant in (st.stock || {})) for (const date in st.stock[plant]) {
+    const snap = st.stock[plant][date];
+    for (const c in snap) if (bad(c)) { delete snap[c]; rows++; }
+  }
+  if (Array.isArray(st.movements)) {
+    const n = st.movements.length; st.movements = st.movements.filter(m => !bad(m.code)); rows += n - st.movements.length;
+  }
+  if (Array.isArray(st.orders)) {
+    const n = st.orders.length; st.orders = st.orders.filter(o => !bad(o.code)); rows += n - st.orders.length;
+  }
+  for (const c in (st.stockLevels || {})) if (bad(c)) delete st.stockLevels[c];
+  return { materials: gone.length, rows, example: gone[0] || '' };
+}
+
 function migrateMaterialDescriptions(materials, done) {
   if (!done.descPrefix) {
     for (const code in materials) {
@@ -1198,6 +1221,12 @@ function loadState() {
           state.migrations = { ...(r.migrations || {}) };
           migrateSettings(state.settings, state.migrations);
           migrateMaterialDescriptions(state.materials, state.migrations);
+          const cleaned = dropNonPaper(state);
+          if (cleaned.materials || cleaned.rows) {
+            setTimeout(() => notify('Removed ' + cleaned.materials + ' non-paper material(s) (e.g. ' + cleaned.example +
+              ') and ' + cleaned.rows + ' row(s) that came with them.', 'info'), 800);
+            setTimeout(() => saveState(true), 1200);
+          }
           state.mappings = { stock: {}, movements: {}, orders: {}, ...(r.mappings || {}) };
           state.plan = { month: '', sqm: 0, gsm: 0, waste: 0, spread: 'work', prodDays: 0, basis: '90', split: {}, ...(r.plan || {}) };
           state.plans = r.plans || {};
@@ -1552,6 +1581,7 @@ const Dropbox = (() => {
     if (res.status === 409 && !retrying) {
       const remote = await download();
       state = mergeStates(state, remote);
+      dropNonPaper(state);
       invalidate(); saveLocalOnly(); refreshAll();
       notify('Another computer had newer data — merged before saving', 'info');
       return await push(true);
@@ -1586,6 +1616,7 @@ const Dropbox = (() => {
       const before = countRows(state);
       if (remote) {
         state = mergeStates(state, remote);
+        dropNonPaper(state);
         state.settings = { ...DEFAULTS, ...(state.settings || {}) };
         invalidate(); saveLocalOnly(); refreshAll();
       }
@@ -1908,6 +1939,14 @@ function matCode(v) {
   if (/^0+\d+$/.test(s)) s = s.replace(/^0+/, '');
   return s;
 }
+// Paper grades are always coded grade-grammage-width (3100-135-2350). Anything
+// else — spare parts, starch, belts, all plain SAP numbers — reaches the app
+// only through an export that wasn't limited to paper, and is left out.
+function isPaperCode(code) { return /^\d+-\d+-\d+$/.test(code); }
+function nonPaperNote(n, eg) {
+  return n + ' row(s) for materials that are not paper (e.g. ' + eg + ') were skipped. ' +
+    'Paper grades are coded grade-grammage-width, like 3100-135-2350.';
+}
 function plantCode(v) { return String(v === null || v === undefined ? '' : v).trim().toUpperCase(); }
 function mvtCode(v) {
   if (v === null || v === undefined) return '';
@@ -2149,25 +2188,27 @@ function noteMaterial(code, desc, unit) {
 
 function extractStock(rows, map, fallbackDate) {
   const out = [], warn = [];
-  let noDate = 0;
+  let noDate = 0, notPaper = 0, notPaperEg = '';
   for (const r of rows) {
     const code = matCode(pick(r, map, 'material'));
     const plant = plantCode(pick(r, map, 'plant'));
     const qty = num(pick(r, map, 'qty'));
     if (!code || !plant || qty === null) continue;
+    if (!isPaperCode(code)) { notPaper++; notPaperEg = notPaperEg || code; continue; }
     let date = dateISO(pick(r, map, 'date'));
     if (!date) { date = fallbackDate; noDate++; }
     noteMaterial(code, pick(r, map, 'desc'), pick(r, map, 'unit'));
     out.push({ date, plant, code, qty });
   }
   if (noDate && !map.date) warn.push('No snapshot-date column — rows dated ' + fallbackDate + '.');
+  if (notPaper) warn.push(nonPaperNote(notPaper, notPaperEg));
   return { rows: out, warn };
 }
 
 function extractMovements(rows, map, signMode) {
   const out = [], warn = [];
   const parsed = [];
-  let unknownMvt = 0, badDate = 0;
+  let unknownMvt = 0, badDate = 0, notPaper = 0, notPaperEg = '';
   for (const r of rows) {
     const code = matCode(pick(r, map, 'material'));
     const mvt = mvtCode(pick(r, map, 'mvt'));
@@ -2176,6 +2217,7 @@ function extractMovements(rows, map, signMode) {
     const plant = plantCode(pick(r, map, 'plant'));
     const time = parseTime(pick(r, map, 'time'));
     if (!code || !mvt || qty === null) continue;
+    if (!isPaperCode(code)) { notPaper++; notPaperEg = notPaperEg || code; continue; }
     if (!date) { badDate++; continue; }
     if (!MVT[mvt]) { unknownMvt++; continue; }
     parsed.push({ r, code, mvt, qty, date, plant, time });
@@ -2210,6 +2252,7 @@ function extractMovements(rows, map, signMode) {
   }
   if (unknownMvt) warn.push(unknownMvt + ' row(s) with a movement type outside 101/102/251/252/301/302/411 were skipped.');
   if (badDate) warn.push(badDate + ' row(s) had no readable posting date and were skipped.');
+  if (notPaper) warn.push(nonPaperNote(notPaper, notPaperEg));
   warn.push('Signs ' + (mode === 'file' ? 'taken from the file' : 'derived from the movement type') + '.');
   if (!map.doc) warn.push('No material-document column is mapped, so two identical postings on the same day cannot be told apart — map it if your export has one.');
   return { rows: out, warn };
@@ -2217,11 +2260,12 @@ function extractMovements(rows, map, signMode) {
 
 function extractOrders(rows, map, fallbackDate) {
   const out = [], warn = [], suppliers = {};
-  let closed = 0, noDate = 0;
+  let closed = 0, noDate = 0, notPaper = 0, notPaperEg = '';
   for (const r of rows) {
     const code = matCode(pick(r, map, 'material'));
     const qty = num(pick(r, map, 'qty'));
     if (!code || qty === null) continue;
+    if (!isPaperCode(code)) { notPaper++; notPaperEg = notPaperEg || code; continue; }
     // Taken before the open-line filter: a line already delivered still names
     // the mill behind its order, and a later line of it may well be open.
     const po = String(pick(r, map, 'po') || '').trim();
@@ -2257,6 +2301,7 @@ function extractOrders(rows, map, fallbackDate) {
       'Edit column mapping.');
   }
   if (closed) warn.push(closed + ' line(s) already had a goods receipt (or no quantity) and were ignored.');
+  if (notPaper) warn.push(nonPaperNote(notPaper, notPaperEg));
   if (noDate) warn.push(noDate + ' line(s) have no confirmed delivery date. They count towards \u201con order\u201d but are left out of the arrival timeline.');
   return { rows: out, warn, suppliers };
 }
@@ -2354,10 +2399,11 @@ function purchaseListOrders(text) {
   const items = parsePurchaseList(text);
   const tol = Math.min(1, Math.max(0, Number(state.settings.receiptTolerance)));
   const rows = [];
-  let closed = 0, residual = 0, residualKg = 0, partial = 0, noDate = 0, noPlant = 0;
+  let closed = 0, residual = 0, residualKg = 0, partial = 0, noDate = 0, noPlant = 0, notPaper = 0, notPaperEg = '';
 
   for (const it of items) {
     if (!it.code || !it.ordered) continue;
+    if (!isPaperCode(it.code)) { notPaper++; notPaperEg = notPaperEg || it.code; continue; }
     const open = it.open === null ? it.ordered : it.open;
     if (open <= 0) { closed++; continue; }
     if (it.gr > 0) {
@@ -2380,6 +2426,7 @@ function purchaseListOrders(text) {
     '% tolerance, which is reel weight variance rather than an outstanding delivery.');
   if (partial) warn.push(partial + ' genuinely part-delivered line(s) kept, at their outstanding quantity.');
   if (noDate) warn.push(noDate + ' open line(s) still have no delivery date.');
+  if (notPaper) warn.push(nonPaperNote(notPaper, notPaperEg));
   return { rows, warn };
 }
 
