@@ -287,21 +287,26 @@ heuristics, silently; Firefox by asking), so the result is displayed rather than
 relied on, and there is an ask-again button. Clearing site data by hand erases
 the database whatever the verdict, which is what the JSON backup is for.
 
-## Open orders: two sources
-The spreadsheet export (ME2M at item level) has no delivery date, because the
-date lives on the schedule line one level down. In practice that means a line
-the supplier hasn't confirmed yet often has no date at all in that export — and
-an undated line can't be placed on a timeline, so it simply drops out of every
-projection. The app therefore also reads the **SAP purchase-order list** — ME2M
-with scope of list `ALLES`, saved through *System → List → Save → Local File*
-as a `.txt`. This is what finds a delivery date for an order that isn't
-confirmed yet: it dates every line regardless of acknowledgement, which is the
-one thing the spreadsheet can't do. Uploading it regularly, alongside the
-spreadsheet, is the recommended way to run this. It is a printed report rather
-than a table, so it is recognised by its layout and parsed by shape; it needs
-no column mapping. Drop it on the Import page like any other file.
+## Open orders: two sources — import both
+Open orders come from two SAP exports, and neither is complete on its own:
 
-It carries, on every line, what the spreadsheet cannot:
+- **orders.xlsx** — transaction **ZMCOCKPIT**. Carries whether the supplier
+  has confirmed each line, the confirmed delivery date, and the mill's name.
+  A line the supplier hasn't confirmed yet has no date in it.
+- **export.txt** — transaction **ME2M** with scope of list `ALLES`, saved
+  through *System → List → Save → Local File*. Lists every open order line
+  with its delivery date, confirmed or not, but says nothing about
+  confirmation.
+
+Import both, ideally exported the same day. The app takes the confirmation
+status, the confirmed date and the supplier name from orders.xlsx, and for a
+line with no confirmed date yet takes the date from export.txt — without it,
+an unconfirmed line has no date and drops out of every projection. The .txt
+is a printed report rather than a table, so it is recognised by its layout and
+parsed by shape; it needs no column mapping. Drop it on the Import page like
+any other file.
+
+export.txt also carries, on every line, what orders.xlsx cannot:
 
 - the **schedule-line delivery date**, present whether or not the supplier has
   confirmed, so nothing has to be estimated from a lead time;
@@ -317,9 +322,9 @@ real export that separates cleanly: 58 residual lines averaging under 20% of
 their order, and 3 genuine partials at 33%, 50% and 65%.
 
 ### Confirmed or only ordered
-Neither export answers both questions: the purchase-order list dates every line
-but says nothing about acknowledgement, and the spreadsheet carries the
-acknowledgement flag but no usable date. So **import both**. The flag is kept in
+Neither export answers both questions: export.txt (ME2M) dates every line but
+says nothing about acknowledgement, and orders.xlsx (ZMCOCKPIT) carries the
+acknowledgement flag but dates only the confirmed lines. So **import both**. The flag is kept in
 its own map keyed by PO and item, separate from the order list, and therefore
 survives that list being replaced by the other source.
 
