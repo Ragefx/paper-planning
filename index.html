@@ -288,6 +288,7 @@ input, select, textarea {
   font-size: 13px; outline: none; box-shadow: var(--shadow);
 }
 input:focus, select:focus, textarea:focus { border-color: var(--amber); }
+input.nomatch { border-color: var(--crit); }
 input[type=number] { font-family: var(--font-mono); }
 input::placeholder { color: var(--text-2); }
 .btn {
@@ -573,9 +574,12 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
     <div class="page-sub">30-day projection from current stock, open orders and average usage</div>
   </div>
   <div class="controls">
-    <label class="fld" style="flex:0 1 270px;min-width:170px">Material
-      <input id="fcMaterial" list="fcMaterialList" autocomplete="off" spellcheck="false"
-             placeholder="type a code or a description">
+    <label class="fld" style="flex:0 1 300px;min-width:180px">Material
+      <select id="fcMaterial"></select>
+    </label>
+    <label class="fld" style="flex:0 1 170px;min-width:130px">Or type
+      <input id="fcFind" list="fcMaterialList" autocomplete="off" spellcheck="false"
+             placeholder="code or description">
       <datalist id="fcMaterialList"></datalist>
     </label>
     <label class="fld">Usage basis
@@ -1015,7 +1019,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-10-02 · 51';
+const BUILD = '2026-10-02 · 52';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -2485,11 +2489,14 @@ function usageWindow(basis) {
   return build(from, [PLANT_PROD()], from !== wanted);
 }
 
-function avgUsage(code, basis) {
+// `onlyPlants` narrows the average to consumption at those plants, over the
+// same window — so a view of one plant draws only what that plant uses.
+function avgUsage(code, basis, onlyPlants) {
   const idx = usageIndex()[code];
   if (!idx) return 0;
-  const w = usageWindow(basis);
-  if (!w) return 0;
+  const w0 = usageWindow(basis);
+  if (!w0) return 0;
+  const w = onlyPlants ? { ...w0, plants: onlyPlants } : w0;
   const rows = [];
   for (let i = 0; i < w.span; i++) {
     const d = addDays(w.from, i);
@@ -3324,22 +3331,14 @@ function setMaterialLevel(code, which, value) {
   saveState();
 }
 
-// The material box takes typing as well as picking. Options carry the code as
-// their value and the description as their label, so the box always holds a
-// code — every other page that jumps here can go on setting it directly — while
-// typing part of a description still finds the grade.
-function fillMaterialInput(input, listEl) {
-  const codes = allMaterialCodes();
-  listEl.innerHTML = codes.map(c => {
+// Suggestions for the "Or type" box beside the Material dropdown. Each option
+// carries the code as its value and the description as its label, so typing
+// part of a description still finds the grade.
+function fillMaterialList(listEl) {
+  listEl.innerHTML = allMaterialCodes().map(c => {
     const m = state.materials[c];
     return '<option value="' + esc(c) + '"' + (m && m.desc ? ' label="' + esc(m.desc) + '"' : '') + '></option>';
   }).join('');
-  // Until someone picks a material, the page follows the most urgent one — the
-  // same rule the old dropdown had. Keeping whatever was valid first instead
-  // left it parked on the first code of the first file imported, usually a
-  // grade with no usage and nothing on order.
-  if (input.dataset.userPicked === '1' && codes.indexOf(input.value) > -1) return;
-  input.value = codes.length ? (mostUrgentCode() || codes[0]) : '';
 }
 
 // What the user typed, resolved to a material. An exact code wins; failing that
@@ -3858,7 +3857,12 @@ function renderWarehouse() {
 
   // Usage rate for the projected part of the month.
   const codes = code === '__all__' ? allMaterialCodes() : [code];
-  const usage = codes.reduce((s, c) => s + avgUsage(c, basis), 0);
+  // A view of one plant draws only what that plant consumes: SI10 is a
+  // warehouse, so its own rate is (near) zero, not the site's. Split draws a
+  // projection for the production plant only, at that plant's rate.
+  const usePlants = whScope === 'split' ? [PLANT_PROD()]
+    : (whScope === PLANT_WH() || whScope === PLANT_PROD()) ? [whScope] : null;
+  const usage = codes.reduce((s, c) => s + avgUsage(c, basis, usePlants), 0);
 
   // Actual, per plant.
   const actWh = actualSeries(PLANT_WH(), code, dates);
@@ -4018,8 +4022,10 @@ function renderWarehouse() {
   drawChart('whChart', { type: 'line', data: { labels: dates, datasets }, options: opt, plugins: [zeroLine(cssVar('--red'))] });
 
   // Stat tiles for the month.
-  const monthReceipts = sumMovements(codes, mk, m => MVT[m.mvt].kind === 'receipt' && ownStock(m));
-  const monthUsage = -sumMovements(codes, mk, m => USAGE_MVT.indexOf(m.mvt) > -1);
+  // Month totals follow the plant on screen, like the chart does.
+  const inScope = m => whScope === 'both' || whScope === 'split' || m.plant === whScope;
+  const monthReceipts = sumMovements(codes, mk, m => MVT[m.mvt].kind === 'receipt' && ownStock(m) && inScope(m));
+  const monthUsage = -sumMovements(codes, mk, m => USAGE_MVT.indexOf(m.mvt) > -1 && inScope(m));
   const outOfWh = transferOut(codes, mk, PLANT_WH());
   const outOfProd = transferOut(codes, mk, PLANT_PROD());
   const incoming = arrivals.reduce((s, a) => s + a.qty, 0);
@@ -4039,7 +4045,9 @@ function renderWarehouse() {
     // only ever a footnote on the tile it produces.
     tile('Usage rate', fmt(usage, 0) + '<span class="stat-unit">kg / ' +
            (state.settings.usageDays === 'all' ? 'day' : 'work day') + '</span>',
-         fmt(usage / 1000, 1) + ' t · ' + basisNote(basis)),
+         fmt(usage / 1000, 1) + ' t · ' + (usePlants && whScope !== 'split'
+           ? 'consumption at ' + whScope + ' only' + (usage > 0 ? '' : ' — none posted, so nothing is drawn down')
+           : basisNote(basis))),
     (() => {
       const end = lastNonNull(datasets[whScope === 'split' ? 2 : 1].data);
       const start = scopeStockFor(code, whScope);
@@ -6558,7 +6566,8 @@ function renderPage(page) {
 function refreshAll() {
   invalidate();
   renderDataAge();
-  fillMaterialInput(document.getElementById('fcMaterial'), document.getElementById('fcMaterialList'));
+  fillMaterialSelect(document.getElementById('fcMaterial'), false);
+  fillMaterialList(document.getElementById('fcMaterialList'));
   fillMaterialSelect(document.getElementById('whMaterial'), true);
   renderPage(currentPage);
 }
@@ -6592,19 +6601,22 @@ function wire() {
   // Forecast
   ['fcBasis', 'fcDays', 'fcScope'].forEach(id =>
     document.getElementById(id).onchange = renderForecast);
-  const fcMat = document.getElementById('fcMaterial');
-  // Picking from the list fires input, not change, so both are wired; typing a
-  // code that matches redraws as soon as it is complete.
-  ['input', 'change'].forEach(ev => fcMat.addEventListener(ev, () => {
-    fcMat.dataset.userPicked = '1';
-    renderForecast();
-  }));
-  // On leaving the box, a resolved material is written back in full, so a
-  // half-typed code never stays on screen looking like the chosen one.
-  fcMat.addEventListener('blur', () => {
-    const c = resolveMaterial(fcMat.value);
-    if (c && c !== fcMat.value) { fcMat.value = c; renderForecast(); }
-  });
+  const fcMat = document.getElementById('fcMaterial'), fcFind = document.getElementById('fcFind');
+  fcMat.addEventListener('change', () => { fcMat.dataset.userPicked = '1'; renderForecast(); });
+  // The find box only steers the dropdown. As soon as what is typed names one
+  // grade, the dropdown jumps to it; the box then empties, so it is ready for
+  // the next search and its suggestion list shows every grade again.
+  const findPick = done => {
+    const c = resolveMaterial(fcFind.value);
+    fcFind.classList.toggle('nomatch', !!fcFind.value.trim() && !c);
+    if (!c) return;
+    fcMat.value = c; fcMat.dataset.userPicked = '1'; renderForecast();
+    if (done) { fcFind.value = ''; fcFind.classList.remove('nomatch'); }
+  };
+  fcFind.addEventListener('input', () => findPick(false));
+  fcFind.addEventListener('change', () => findPick(true));
+  fcFind.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); findPick(true); fcFind.blur(); } });
+  fcFind.addEventListener('blur', () => { if (resolveMaterial(fcFind.value)) fcFind.value = ''; fcFind.classList.remove('nomatch'); });
   ['fcMin', 'fcMax'].forEach(id => document.getElementById(id).onchange = e => {
     const c = resolveMaterial(document.getElementById('fcMaterial').value);
     if (!c) return;

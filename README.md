@@ -118,9 +118,10 @@ only, the all-time average uses both.
   arrive today.
 - **Material Forecast** — projection for one material over 14–90 days, with
   current stock and the 30-, 60- and 90-day and all-time usage averages, plus arrival
-  markers carrying order number, quantity and supplier. The material field
-  takes typing as well as picking — a code or any part of a description finds
-  the grade.
+  markers carrying order number, quantity and supplier. Pick the grade from the
+  **Material** dropdown, or type a code or any part of a description in the
+  **Or type** box beside it: as soon as the text names one grade the dropdown
+  jumps to it and the box clears for the next search.
 
   The Min / Max boxes next to the usage basis and horizon show the grade's
   levels from Settings → Stock levels — the site default until a grade is given
@@ -141,7 +142,10 @@ only, the all-time average uses both.
   snapshots filled in by unwinding the movement history — a reported snapshot
   always wins on its own date, so a gap of several days between stock counts
   is not shown as a flat line — then a dashed projection ahead from the latest
-  snapshot. Optionally split by plant.
+  snapshot. Optionally split by plant. Viewing one plant uses that plant's own
+  figures throughout — its receipts, its consumption, and its own usage rate
+  for the projection — so SI10, which stores but does not consume, is not
+  drawn down at the production plant's rate.
 
   Every number on the chart, real or reconstructed, is a closing balance for
   its day — previous day plus everything posted that day. Where the movements
