@@ -229,6 +229,13 @@ only, the all-time average uses both.
   before the round opens until it closes, the Overview's **What needs doing**
   shows how many recycled and kraft grades it covers.
 
+  The same early list is the Overview's only shortage warning: red for grades
+  that run out before the round's paper can arrive (with the date and the
+  tonnes missing), amber for grades that only dip below minimum. Paper simply
+  not ordered yet is the round's business and is not counted as a shortage.
+  Stock Balancing still shows how much usage in its window no stock or dated
+  order covers, but as information, since most of it is the coming rounds.
+
   Quantities already on order are shown in blue and never ordered again. The
   **maximum** and **over-max** levels never cause an order — they warn, which
   is what matters when a plant is already full and shipping stock back to the

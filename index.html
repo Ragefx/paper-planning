@@ -1029,7 +1029,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-10-06 · 55';
+const BUILD = '2026-10-06 · 56';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -4385,12 +4385,14 @@ function buildRoundPlan(R) {
         if (d > tEnd) continue;
         arrive[d] = (arrive[d] || 0) + o.qty;
       }
-      let q = stockScope(code, 'both'), seenShort = false, guard = 0;
+      let q = stockScope(code, 'both'), ea = null, guard = 0;
       for (let d = start; d <= tEnd; d = addDays(d, 1)) {
         if (d !== start) q -= draw(d);
         q += arrive[d] || 0;
         if (d < tStart) {
-          if (!seenShort && q < minKg) { seenShort = true; early.push({ code, fam, date: d, level: q, minKg, minDays: own.min }); }
+          if (!ea && q < minKg) { ea = { code, fam, date: d, level: q, minKg, minDays: own.min, out: null, gap: 0 }; early.push(ea); }
+          // when it actually runs dry, and how much is missing by the time this round's paper lands
+          if (ea && q < 0) { if (!ea.out) ea.out = d; ea.gap = Math.max(ea.gap, -q); }
           continue;
         }
         if (d === tStart && q < 0) q = 0;
@@ -4406,7 +4408,7 @@ function buildRoundPlan(R) {
   const famRank = { recycled: 0, kraft: 1 };
   proposals.sort((a, b) => famRank[a.fam] - famRank[b.fam] || a.code.localeCompare(b.code, undefined, { numeric: true }) ||
                            a.arriveBy.localeCompare(b.arriveBy));
-  early.sort((a, b) => a.date.localeCompare(b.date));
+  early.sort((a, b) => (a.out || '9').localeCompare(b.out || '9') || a.date.localeCompare(b.date));
   return { R, targets, families, proposals, early, window: roundWindow(), deadline: roundDeadline(R),
            opens: dayOf(R, roundWindow().from) };
 }
@@ -4472,7 +4474,9 @@ function renderRound() {
       ? '<div class="banner warn" style="margin-top:12px">' + r.early.length + ' grade(s) fall below their minimum ' +
           'before this round\u2019s deliveries arrive. Those months were bought in earlier rounds, so chase an earlier ' +
           'delivery or add to an open order: ' +
-          r.early.slice(0, 8).map(e => '<span class="mono">' + esc(e.code) + '</span> from ' + esc(shortDate(e.date))).join(', ') +
+          r.early.slice(0, 8).map(e => '<span class="mono">' + esc(e.code) + '</span> ' + (e.out
+            ? 'runs out ' + esc(shortDate(e.out)) + ', ' + fmt(e.gap / 1000, 1) + ' t short'
+            : 'below minimum from ' + esc(shortDate(e.date)))).join(', ') +
           (r.early.length > 8 ? ' and ' + (r.early.length - 8) + ' more' : '') + '</div>'
       : '');
 }
@@ -5039,9 +5043,34 @@ function renderOverviewTodo(f) {
         title: (ahead > 0 ? 'Order round opens ' + shortDate(opens) : 'Order round open until ' + shortDate(closes)) +
                ' — ' + what,
         text: t(fr.kg + fk.kg) + ' t in all. ' +
-              (noPlan.length ? 'No board plan is saved for ' + noPlan.join(' or ') + ', so those grades are sized from the 30-day usage. ' : '') +
-              (r.early.length ? r.early.length + ' grade(s) run short before this round’s paper arrives. ' : ''),
+              (noPlan.length ? 'No board plan is saved for ' + noPlan.join(' or ') + ', so those grades are sized from the 30-day usage. ' : ''),
         page: 'planning', link: 'Open the round' });
+    }
+  }
+
+  // Paper that runs short before the open round's deliveries can land. Those
+  // months were bought in earlier rounds, so ordering more will not help: the
+  // fix is an earlier delivery or a bigger call-off on an order already open.
+  // Grades not yet bought are the round's business and are not counted here.
+  if (state.movements.length) {
+    const early = buildRoundPlan(currentRound()).early;
+    const out = early.filter(e => e.out), low = early.filter(e => !e.out);
+    const name = e => '<span class="mono">' + esc(e.code) + '</span>';
+    if (out.length) {
+      items.push({ lvl: 'crit',
+        title: out.length + (out.length === 1 ? ' grade runs' : ' grades run') + ' out before this round\u2019s paper arrives',
+        text: out.slice(0, 5).map(e => name(e) + ' on ' + esc(shortDate(e.out)) + ' (' + t(e.gap) + ' t short)').join(', ') +
+              (out.length > 5 ? ' and ' + (out.length - 5) + ' more' : '') +
+              '. Stock and dated open orders don\u2019t reach the month this round buys for, so chase an earlier delivery or add to an open order.' +
+              (low.length ? ' ' + low.length + (low.length === 1 ? ' more dips' : ' more dip') + ' below minimum without running out.' : ''),
+        page: 'planning', link: 'See the list' });
+    } else if (low.length) {
+      items.push({ lvl: 'warn',
+        title: low.length + (low.length === 1 ? ' grade dips' : ' grades dip') + ' below minimum before this round\u2019s paper arrives',
+        text: 'None runs out, but cover is thinner than the minimum until then: ' +
+              low.slice(0, 5).map(e => name(e) + ' from ' + esc(shortDate(e.date))).join(', ') +
+              (low.length > 5 ? ' and ' + (low.length - 5) + ' more' : ''),
+        page: 'planning', link: 'See the list' });
     }
   }
 
@@ -5070,11 +5099,6 @@ function renderOverviewTodo(f) {
               (back.length && out.length ? ' · ' : '') +
               (out.length ? t(out.reduce((s, m) => s + m.qty, 0)) + ' t out to ' + wh : ''),
         page: 'balance', link: 'See the schedule' });
-    }
-    if (bal.shortKg > 1000) {
-      items.push({ lvl: 'crit', title: t(bal.shortKg) + ' t of production neither plant can cover',
-        text: 'Inside the next ' + bal.days + ' days. That is a shortage to order against.',
-        page: 'planning', link: 'Open Production Planning' });
     }
   }
 
@@ -5669,8 +5693,10 @@ function renderBalance() {
           '</div>'
         : '<div class="banner ok">These moves keep ' + esc(prod) + ' inside capacity for the whole window.</div>') +
       (b.shortKg > 1000
-        ? '<div class="banner warn">Neither plant can cover <strong>' + t(b.shortKg) + ' t</strong> of planned ' +
-          'production in this window — that is a shortage to order against, not one to move paper around for.</div>'
+        ? '<div class="banner info"><strong>' + t(b.shortKg) + ' t</strong> of usage in this window is not covered by ' +
+          'stock or dated open orders. Most of it is paper the coming order rounds have still to buy, so it is not a ' +
+          'shortage by itself and moving paper cannot help. What runs out before the next round can deliver is listed ' +
+          'under Production Planning \u2192 Order round.</div>'
         : '') +
       (b.redirects.length ? redirectTable() : '') +
       (b.transfers.length ? transferTable() : '');
