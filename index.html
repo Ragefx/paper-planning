@@ -676,11 +676,26 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 <div class="page" id="page-planning">
   <div class="page-head">
     <div class="page-title">Production Planning</div>
-    <div class="page-sub">Forecast the month's board and get an order list — what to order, how much, and by when</div>
+    <div class="page-sub">What to order in each monthly round — recycled grades for the next month, kraft for the month after</div>
+  </div>
+
+  <div class="card" id="roundCard">
+    <div class="row" style="margin-bottom:12px">
+      <div class="card-title" style="margin:0">Order round</div>
+      <input type="month" id="planRound" aria-label="Round month">
+      <div class="spacer"></div>
+      <button class="btn" id="planExport">Export CSV</button>
+      <button class="btn" id="planPrint">Print</button>
+    </div>
+    <div id="roundSummary"></div>
+    <div id="planOrders"></div>
   </div>
 
   <div class="card">
-    <div class="card-title">The month</div>
+    <div class="card-title">Board plan per month</div>
+    <div class="small" style="margin-bottom:10px">Plan a month here and save it. Each order round sizes its recycled
+      grades from the next month's saved plan and its kraft grades from the month after's; a month with no saved plan
+      is sized from current usage instead. The figures below are for the month picked here.</div>
     <div class="controls">
       <label class="fld">Plan month
         <input type="month" id="planMonth">
@@ -725,16 +740,6 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
   </div>
 
   <div class="stats" id="planStats"></div>
-
-  <div class="card">
-    <div class="row" style="margin-bottom:12px">
-      <div class="card-title" style="margin:0">What to order</div>
-      <div class="spacer"></div>
-      <button class="btn" id="planExport">Export CSV</button>
-      <button class="btn" id="planPrint">Print</button>
-    </div>
-    <div id="planOrders"></div>
-  </div>
 
   <div class="card">
     <div class="card-title" id="planChartTitle">Projected stock under this plan</div>
@@ -904,12 +909,15 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
     <div class="lv-group">
       <div class="lv-head">Ordering</div>
       <div class="row">
-        <label class="fld">Supplier lead time (days) <input type="number" id="polLead" min="0" step="1" style="width:140px"></label>
+        <label class="fld">Order round from day <input type="number" id="polRoundFrom" min="1" max="28" step="1" style="width:120px"></label>
+        <label class="fld">to day <input type="number" id="polRoundTo" min="1" max="28" step="1" style="width:100px"></label>
         <label class="fld">Order multiple (kg) <input type="number" id="polLot" min="1" step="1000" style="width:130px"></label>
       </div>
+      <div class="small" style="margin-top:8px">Orders go out once a month, in this window. Recycled grades are ordered
+        for the following month; kraft grades — those coded 1xxx, 2xxx, 5xxx and 8xxx — for the month after that.</div>
     </div>
     <div class="lv-group">
-      <div class="lv-head">Per-grade levels <span>a grade that can be had in a week needs less than one on a two-month lead time</span></div>
+      <div class="lv-head">Per-grade levels <span>a grade that can be had in a week needs less than one bought two months out</span></div>
       <div id="levelOverrides"></div>
       <div class="row" style="margin-top:10px">
         <label class="fld" style="flex:0 1 240px;min-width:170px">Grade
@@ -1021,7 +1029,7 @@ ol.steps { margin: 8px 0 12px 18px; font-size: 12.5px; color: var(--text-1); lin
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const BUILD = '2026-10-06 · 54';
+const BUILD = '2026-10-06 · 55';
 
 const MVT = {
   '101': { label: 'Goods receipt',            sign: +1, kind: 'receipt' },
@@ -1053,7 +1061,9 @@ const DEFAULTS = {
   idealDays: 15,
   maxDays: 30,
   extraMaxDays: 45,
-  leadDays: 14,
+  leadDays: 14,             // no longer used: orders follow the monthly round
+  roundFrom: 10,            // orders for the round go out between these days
+  roundTo: 15,
   lotSize: 23000,
   // Plant capacity in tonnes. A warehouse fills by weight, so this is not
   // expressed in days of cover like the ordering policy is.
@@ -4280,12 +4290,208 @@ function policyDays() {
   };
 }
 
+// ═══ ORDER ROUNDS ══════════════════════════════════════════
+// Orders go out once a month, between the 10th and the 15th (Settings). In that
+// round, recycled grades are ordered for the next month and kraft grades for
+// the month after: the October round buys November's recycled paper and
+// December's kraft. Kraft is every grade coded 1xxx, 2xxx, 5xxx or 8xxx.
+function isKraft(code) { return /^[1258]/.test(code); }
+function familyOf(code) { return isKraft(code) ? 'kraft' : 'recycled'; }
+function addMonths(mk, n) {
+  const [y, m] = mk.split('-').map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+function monthName(mk) {
+  const [y, m] = mk.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+}
+function roundWindow() {
+  const s = state.settings;
+  const from = Math.min(28, Math.max(1, Math.round(Number(s.roundFrom) || 10)));
+  const to = Math.min(28, Math.max(from, Math.round(Number(s.roundTo) || 15)));
+  return { from, to };
+}
+const dayOf = (mk, d) => mk + '-' + String(d).padStart(2, '0');
+// The round an order arriving in month `mk` belongs to, and its last day.
+function roundForArrival(code, mk) { return addMonths(mk, isKraft(code) ? -2 : -1); }
+function roundDeadline(R) { return dayOf(R, roundWindow().to); }
+// The round still open: this month's until its last day has passed, then next month's.
+function currentRound() {
+  const t = todayISO();
+  return Number(t.slice(8, 10)) <= roundWindow().to ? monthKey(t) : addMonths(monthKey(t), 1);
+}
+
+// The board plan that sizes a month: the one being edited if it is that month,
+// otherwise the saved plan. Null when the month has none.
+function planFor(mk) {
+  if (state.plan.month === mk) {
+    const { kg } = planInputs();
+    if (kg > 0) return { kg, spread: state.plan.spread || 'work', prodDays: state.plan.prodDays,
+                         split: effectiveSplit(), from: 'screen' };
+  }
+  const sp = (state.plans || {})[mk];
+  if (sp && Number(sp.kg) > 0) return { kg: Number(sp.kg), spread: sp.spread || 'work', prodDays: sp.prodDays,
+    split: sp.split || computedSplit(sp.basis || '90'), from: 'saved', savedAt: sp.savedAt };
+  return null;
+}
+
+// Everything to order in round R. Each grade is walked day by day from today to
+// the end of the month its round buys for (R+1 recycled, R+2 kraft): drawn at
+// the planned rate in any month with a board plan and at its 30-day average
+// otherwise, with open orders landing on their dates. Inside the target month,
+// a fall below the grade's minimum gets an order arriving that day, sized back
+// to ideal and rounded to the order multiple. A fall below minimum before the
+// target month is not this round's to fix — earlier rounds bought that paper —
+// so it is listed separately, and the target month starts from no less than
+// zero rather than ordering the earlier gap a second time.
+function buildRoundPlan(R) {
+  const start = todayISO();
+  const pol = policyDays();
+  const targets = { recycled: addMonths(R, 1), kraft: addMonths(R, 2) };
+  const plans = {}, runs = {};
+  const planOf = mk => {
+    if (!(mk in plans)) {
+      plans[mk] = planFor(mk);
+      if (plans[mk]) {
+        const days = productionDays(mk, plans[mk].spread, plans[mk].prodDays);
+        runs[mk] = { set: new Set(days), n: days.length || monthDays(mk) };
+      }
+    }
+    return plans[mk];
+  };
+  const proposals = [], early = [], families = {};
+  for (const fam of ['recycled', 'kraft']) {
+    const T = targets[fam], tStart = dayOf(T, 1), tEnd = dayOf(T, monthDays(T));
+    const p = planOf(T);
+    families[fam] = { month: T, plan: p, lines: 0, kg: 0, grades: new Set() };
+    for (const code of allMaterialCodes()) {
+      if (familyOf(code) !== fam) continue;
+      const avg = avgUsage(code, '30') || avgUsage(code, 'all');
+      const share = c => p ? (Number(p.split[c]) || 0) / 100 : 0;
+      const refRate = p ? p.kg * share(code) / runs[T].n : avg;
+      if (!(refRate > 0)) continue;
+      const own = levelsFor(code);
+      const minKg = refRate * own.min, idealKg = refRate * own.ideal;
+      const draw = d => {
+        const mk = monthKey(d), pm = planOf(mk);
+        if (pm) return runs[mk].set.has(d) ? pm.kg * (Number(pm.split[code]) || 0) / 100 / runs[mk].n : 0;
+        return consumesOn(d) ? avg : 0;
+      };
+      const arrive = {};
+      for (const o of (openOrders()[code] || [])) {
+        if (!o.delivery) continue;
+        const d = o.delivery < start ? start : o.delivery;
+        if (d > tEnd) continue;
+        arrive[d] = (arrive[d] || 0) + o.qty;
+      }
+      let q = stockScope(code, 'both'), seenShort = false, guard = 0;
+      for (let d = start; d <= tEnd; d = addDays(d, 1)) {
+        if (d !== start) q -= draw(d);
+        q += arrive[d] || 0;
+        if (d < tStart) {
+          if (!seenShort && q < minKg) { seenShort = true; early.push({ code, fam, date: d, level: q, minKg, minDays: own.min }); }
+          continue;
+        }
+        if (d === tStart && q < 0) q = 0;
+        if (q < minKg && guard < 24) {
+          const qty = Math.max(pol.lot, Math.ceil((idealKg - q) / pol.lot) * pol.lot);
+          q += qty; guard++;
+          proposals.push({ code, fam, month: T, arriveBy: d, qty, orderBy: roundDeadline(R), minDays: own.min });
+          families[fam].lines++; families[fam].kg += qty; families[fam].grades.add(code);
+        }
+      }
+    }
+  }
+  const famRank = { recycled: 0, kraft: 1 };
+  proposals.sort((a, b) => famRank[a.fam] - famRank[b.fam] || a.code.localeCompare(b.code, undefined, { numeric: true }) ||
+                           a.arriveBy.localeCompare(b.arriveBy));
+  early.sort((a, b) => a.date.localeCompare(b.date));
+  return { R, targets, families, proposals, early, window: roundWindow(), deadline: roundDeadline(R),
+           opens: dayOf(R, roundWindow().from) };
+}
+
+let planRound = null;   // the round on screen; follows the calendar until someone picks one
+
+function renderRound() {
+  const input = document.getElementById('planRound');
+  const cur = currentRound();
+  if (!planRound) planRound = cur;
+  input.value = planRound;
+  input.min = monthKey(todayISO());
+  const r = buildRoundPlan(planRound);
+  const t = todayISO();
+  const state_ = t > r.deadline ? 'past' : t >= r.opens ? 'open' : 'ahead';
+  const fam = f => {
+    const x = r.families[f], src = x.plan;
+    const how = !src ? '<span style="color:var(--warn-ink)">no board plan saved for ' + esc(monthName(x.month)) +
+        ' — sized from current 30-day usage</span>'
+      : src.from === 'screen' ? 'sized from the plan being edited below (not saved yet)'
+      : 'sized from the saved ' + esc(monthName(x.month)) + ' plan';
+    return '<div><dt>' + (f === 'kraft' ? 'Kraft' : 'Recycled') + ' → ' + esc(monthName(x.month)) + '</dt><dd>' +
+      fmt(x.grades.size, 0) + ' grade(s) · ' + fmt(x.kg / 1000, 1) + ' t <small>' + how + '</small></dd></div>';
+  };
+  document.getElementById('roundSummary').innerHTML =
+    '<div class="banner ' + (state_ === 'past' ? 'warn' : state_ === 'open' ? 'ok' : 'info') + '">' +
+      esc(monthName(r.R)) + ' round: place orders ' + r.window.from + '–' + r.window.to + ' ' +
+      esc(monthName(r.R).split(' ')[0]) + '. ' +
+      (state_ === 'past' ? 'This round closed on ' + esc(r.deadline) + '.'
+        : state_ === 'open' ? 'The round is open now — last day ' + esc(r.deadline) + '.'
+        : 'Opens in ' + daysBetween(t, r.opens) + ' day(s).') +
+    '</div>' +
+    '<dl class="site-stats" style="margin:12px 0 14px">' + fam('recycled') + fam('kraft') + '</dl>';
+
+  // One row per grade: the round is placed as one order per grade, called off
+  // in the deliveries listed under it.
+  const host = document.getElementById('planOrders');
+  const byCode = new Map();
+  for (const o of r.proposals) {
+    if (!byCode.has(o.code)) byCode.set(o.code, { code: o.code, fam: o.fam, month: o.month, minDays: o.minDays, qty: 0, drops: [] });
+    const g = byCode.get(o.code); g.qty += o.qty; g.drops.push(o);
+  }
+  const rows = [...byCode.values()];
+  const drops = g => g.drops.map(o => shortDate(o.arriveBy) + (o.qty !== policyDays().lot ? ' (' + fmt(o.qty / 1000, 0) + ' t)' : '')).join(' · ');
+  host.innerHTML = (rows.length
+    ? '<div class="table-wrap"><table><thead><tr>' +
+        '<th>Material</th><th>Family</th><th>For</th><th class="num">Quantity</th><th>Deliveries</th>' +
+      '</tr></thead><tbody>' + rows.map(g =>
+        '<tr><td><span class="mono">' + esc(g.code) + '</span> <span class="muted">' +
+          esc((state.materials[g.code] || {}).desc || '') + '</span></td>' +
+        '<td>' + g.fam + '</td>' +
+        '<td class="mono">' + esc(g.month) + '</td>' +
+        '<td class="num"><strong>' + fmt(g.qty, 0) + '</strong> <span class="muted" style="font-size:10px">KG</span></td>' +
+        '<td class="small">' + g.drops.length + ' \u00d7 from <span class="mono">' + esc(shortDate(g.drops[0].arriveBy)) + '</span>' +
+          '<div class="muted">' + esc(drops(g)) + '</div></td></tr>').join('') +
+      '</tbody></table></div>' +
+      '<div class="small" style="margin-top:8px">' + rows.length + ' grade(s), ' + r.proposals.length + ' deliveries, ' +
+        fmt(r.proposals.reduce((a, o) => a + o.qty, 0), 0) + ' kg. Each delivery is due the day the grade would drop below its ' +
+        'minimum, is rounded up to ' + fmt(policyDays().lot, 0) + ' kg and brings it back to its ideal cover.</div>'
+    : '<div class="banner ok">Nothing to order in this round: stock and open orders keep every grade above its minimum through ' +
+        esc(monthName(r.targets.recycled)) + ' (recycled) and ' + esc(monthName(r.targets.kraft)) + ' (kraft).</div>') +
+    (r.early.length
+      ? '<div class="banner warn" style="margin-top:12px">' + r.early.length + ' grade(s) fall below their minimum ' +
+          'before this round\u2019s deliveries arrive. Those months were bought in earlier rounds, so chase an earlier ' +
+          'delivery or add to an open order: ' +
+          r.early.slice(0, 8).map(e => '<span class="mono">' + esc(e.code) + '</span> from ' + esc(shortDate(e.date))).join(', ') +
+          (r.early.length > 8 ? ' and ' + (r.early.length - 8) + ' more' : '') + '</div>'
+      : '');
+}
+function exportRound() {
+  const r = buildRoundPlan(planRound || currentRound());
+  if (!r.proposals.length) { notify('Nothing to order in this round', 'info'); return; }
+  const lines = [['Round', 'Order by', 'Material', 'Description', 'Family', 'For month', 'Quantity kg', 'Arrive by'].join(';')];
+  for (const o of r.proposals) lines.push([r.R, o.orderBy, o.code,
+    '"' + String((state.materials[o.code] || {}).desc || '').replace(/"/g, '""') + '"',
+    o.fam, o.month, o.qty, o.arriveBy].join(';'));
+  download('order-round-' + r.R + '.csv', lines.join('\n'), 'text/csv');
+}
+
 // Walks each material from today to the end of the plan month and proposes
 // orders. Stock is drawn at the current average until the month starts and at
 // the planned rate inside it; existing open orders arrive on their dates. When
 // the balance is about to fall below the minimum, an order is placed arriving
 // that day, sized to bring it back to the ideal level and rounded up to the
-// order multiple. The order-by date is that arrival less the lead time.
+// order multiple. The order-by date is the last day of the round that buys that month.
 function buildOrderPlan() {
   const mk = state.plan.month || monthKey(addDays(todayISO(), 32));
   const monthStart = mk + '-01';
@@ -4347,7 +4553,7 @@ function buildOrderPlan() {
         if (withProposals && refRate > 0 && q < lv.min && guard < 24) {
           const qty = Math.max(pol.lot, Math.ceil((lv.ideal - q) / pol.lot) * pol.lot);
           q += qty;
-          placed.push({ code, arriveBy: d, orderBy: addDays(d, -pol.lead), qty, level: q, pct });
+          placed.push({ code, arriveBy: d, orderBy: roundDeadline(roundForArrival(code, monthKey(d))), qty, level: q, pct });
           guard++;
         }
         if (q > peak) peak = q;
@@ -4400,7 +4606,8 @@ function renderPlanning() {
   document.getElementById('planPolicy').innerHTML =
     'Orders are proposed below <strong>' + fmt(pol.min, 1) + '</strong> days of cover and sized back to <strong>' +
     fmt(pol.ideal, 1) + '</strong>; maximum <strong>' + fmt(pol.max, 1) + '</strong>, over-max <strong>' +
-    fmt(pol.xmax, 1) + '</strong>. Lead time ' + fmt(pol.lead, 0) + ' days, order multiple ' + fmt(pol.lot, 0) + ' kg. ' +
+    fmt(pol.xmax, 1) + '</strong>. Orders go out on days ' + roundWindow().from + '–' + roundWindow().to +
+    ' of each month, in multiples of ' + fmt(pol.lot, 0) + ' kg. ' +
     (own ? '<strong>' + own + '</strong> grade(s) use their own levels instead. ' : '') +
     '<a href="#" class="drill" id="planPolicyEdit">Change in Settings →</a>';
   document.getElementById('planPolicyEdit').onclick = e => {
@@ -4461,8 +4668,9 @@ function renderPlanning() {
          'arriving inside ' + plan.mk),
     tile('Still to order', fmt(totalOrder / 1000, 1) + '<span class="stat-unit">t</span>',
          plan.proposals.length + ' order(s) proposed', totalOrder ? 'accent' : ''),
-    tile('Order today', fmt(late.length, 0),
-         late.length ? 'lead time already passed' : 'nothing overdue', late.length ? 'danger' : ''),
+    tile('Missed their round', fmt(late.length, 0),
+         late.length ? 'needed in ' + plan.mk + ' but their round has closed' : 'every order still has its round ahead',
+         late.length ? 'danger' : ''),
     (() => {
       const over = plan.rows.filter(r => r.peak > r.lv.max && r.lv.max > 0);
       const hard = over.filter(r => r.peak > r.lv.xmax);
@@ -4472,38 +4680,8 @@ function renderPlanning() {
     })(),
   ].join('');
 
-  // ── the deliverable: what, when, how much ──
-  const oHost = document.getElementById('planOrders');
-  if (!kg) {
-    oHost.innerHTML = '<div class="small">Nothing to work out until the month is sized.</div>';
-  } else if (!plan.proposals.length) {
-    oHost.innerHTML = '<div class="banner ok">No orders needed. Current stock and what is already on order cover the whole plan without falling below the minimum.</div>';
-  } else {
-    const byWeek = {};
-    for (const o of plan.proposals) (byWeek[o.orderBy] || (byWeek[o.orderBy] = [])).push(o);
-    oHost.innerHTML =
-      (late.length ? '<div class="banner err">' + late.length + ' order(s) are already inside the ' + pol.lead +
-        '-day lead time and should go out today to arrive when needed.</div>' : '') +
-      '<div class="table-wrap"><table><thead><tr>' +
-      '<th>Order by</th><th>Material</th><th class="num">Quantity</th><th>To arrive</th><th class="num">Days out</th><th>Why</th>' +
-      '</tr></thead><tbody>' +
-      Object.keys(byWeek).sort().map(d => byWeek[d].map((o, i) => {
-        const dd = daysBetween(todayISO(), o.orderBy);
-        const overdue = o.orderBy < todayISO();
-        return '<tr' + (overdue ? ' class="risk-crit"' : '') + '>' +
-          '<td class="mono"' + (overdue ? ' style="color:var(--crit-ink);font-weight:600"' : '') + '>' +
-            (i === 0 ? esc(o.orderBy) + (overdue ? ' ⚠' : '') : '') + '</td>' +
-          '<td><span class="mono">' + esc(o.code) + '</span> <span class="muted">' +
-            esc((state.materials[o.code] || {}).desc || '') + '</span></td>' +
-          '<td class="num"><strong>' + fmt(o.qty, 0) + '</strong> <span class="muted" style="font-size:10px">KG</span></td>' +
-          '<td class="mono">' + esc(o.arriveBy) + '</td>' +
-          '<td class="num muted">' + (dd < 0 ? Math.abs(dd) + ' late' : dd) + '</td>' +
-          '<td class="small">would drop below the ' + fmt(pol.min, 1) + '-day minimum</td>' +
-        '</tr>';
-      }).join('')).join('') + '</tbody></table></div>' +
-      '<div class="small" style="margin-top:8px">' + plan.proposals.length + ' order(s), ' + fmt(totalOrder, 0) +
-      ' kg total, rounded up to ' + fmt(pol.lot, 0) + ' kg. Order-by dates assume a ' + pol.lead + '-day lead time.</div>';
-  }
+  // The order list itself is the round card at the top of the page.
+  renderRound();
 
   // ── chart: with and without the proposals, against the policy bands ──
   if (!kg || !plan.rows.length) {
@@ -4843,6 +5021,28 @@ function renderOverviewTodo(f) {
               : 'They are older than the 30-day average, but the longer averages and History still count them. ') +
             'Import those days\u2019 movements, or mark them closed under Settings \u2192 Holidays if the line did not run.',
       page: 'import', link: 'Go to Import' });
+  }
+
+  // The monthly order round: a week's notice before it opens, then every day
+  // until it closes.
+  if (state.movements.length) {
+    const R = currentRound(), win = roundWindow(), today = todayISO();
+    const opens = dayOf(R, win.from), closes = roundDeadline(R);
+    const ahead = daysBetween(today, opens);
+    if (ahead <= 7) {
+      const r = buildRoundPlan(R), fr = r.families.recycled, fk = r.families.kraft;
+      const mon = mk => monthName(mk).split(' ')[0];
+      const what = fr.grades.size + ' recycled grade' + (fr.grades.size === 1 ? '' : 's') + ' for ' + mon(fr.month) + ', ' +
+                   fk.grades.size + ' kraft for ' + mon(fk.month);
+      const noPlan = [fr, fk].filter(x => !x.plan).map(x => mon(x.month));
+      items.push({ lvl: ahead <= 0 ? 'warn' : 'ok',
+        title: (ahead > 0 ? 'Order round opens ' + shortDate(opens) : 'Order round open until ' + shortDate(closes)) +
+               ' — ' + what,
+        text: t(fr.kg + fk.kg) + ' t in all. ' +
+              (noPlan.length ? 'No board plan is saved for ' + noPlan.join(' or ') + ', so those grades are sized from the 30-day usage. ' : '') +
+              (r.early.length ? r.early.length + ' grade(s) run short before this round’s paper arrives. ' : ''),
+        page: 'planning', link: 'Open the round' });
+    }
   }
 
   if (bal) {
@@ -5680,19 +5880,6 @@ function renderHistory() {
   });
 }
 
-function exportOrderPlan() {
-  const plan = buildOrderPlan();
-  if (!plan.proposals.length) { notify('No orders to export', 'info'); return; }
-  const head = ['Order by', 'Material', 'Description', 'Quantity kg', 'Arrive by', 'Days from today', 'Plan month'];
-  const lines = [head.join(';')];
-  for (const o of plan.proposals) {
-    lines.push([o.orderBy, o.code,
-      '"' + String((state.materials[o.code] || {}).desc || '').replace(/"/g, '""') + '"',
-      o.qty, o.arriveBy, daysBetween(todayISO(), o.orderBy), plan.mk].join(';'));
-  }
-  download('order-plan-' + plan.mk + '.csv', lines.join('\n'), 'text/csv');
-}
-
 function savePlanSnapshot() {
   const mk = state.plan.month;
   if (!mk) { notify('Pick a plan month first', 'info'); return; }
@@ -6483,7 +6670,8 @@ function renderSettings() {
   document.getElementById('polIdeal').value = s.idealDays;
   document.getElementById('polMax').value = s.maxDays;
   document.getElementById('polXMax').value = s.extraMaxDays;
-  document.getElementById('polLead').value = s.leadDays;
+  document.getElementById('polRoundFrom').value = s.roundFrom;
+  document.getElementById('polRoundTo').value = s.roundTo;
   document.getElementById('polLot').value = s.lotSize;
   renderLevelOverrides();
 
@@ -6709,7 +6897,7 @@ function wire() {
   };
   // Stock policy lives in settings so the same levels apply wherever they are read.
   [['polMin', 'minDays'], ['polIdeal', 'idealDays'], ['polMax', 'maxDays'],
-   ['polXMax', 'extraMaxDays'], ['polLead', 'leadDays'], ['polLot', 'lotSize']]
+   ['polXMax', 'extraMaxDays'], ['polRoundFrom', 'roundFrom'], ['polRoundTo', 'roundTo'], ['polLot', 'lotSize']]
     .forEach(([id, key]) => {
       document.getElementById(id).onchange = e => {
         state.settings[key] = Number(e.target.value) || 0;
@@ -6722,7 +6910,8 @@ function wire() {
     saveState(); renderPlanning();
   };
   document.getElementById('planSave').onclick = savePlanSnapshot;
-  document.getElementById('planExport').onclick = exportOrderPlan;
+  document.getElementById('planExport').onclick = exportRound;
+  document.getElementById('planRound').onchange = e => { planRound = e.target.value || null; renderRound(); };
   document.getElementById('planPrint').onclick = () => window.print();
   document.getElementById('planReset').onclick = () => {
     state.plan.split = {}; state.plan.basis = '90';
@@ -6760,7 +6949,8 @@ function boot() {
   document.getElementById('polIdeal').value = s.idealDays;
   document.getElementById('polMax').value = s.maxDays;
   document.getElementById('polXMax').value = s.extraMaxDays;
-  document.getElementById('polLead').value = s.leadDays;
+  document.getElementById('polRoundFrom').value = s.roundFrom;
+  document.getElementById('polRoundTo').value = s.roundTo;
   document.getElementById('polLot').value = s.lotSize;
   refreshAll();
   renderImportPage();

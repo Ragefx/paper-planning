@@ -44,9 +44,10 @@ and every page reads it from there:
   Planning orders below minimum and sizes back to ideal; Stock Balancing
   pushes back what a grade doesn't need to stay at ideal; Material Forecast
   draws minimum and maximum as dotted lines.
-- **Ordering** — supplier lead time and order multiple.
+- **Ordering** — the days of the month the order round runs (10th–15th by
+  default) and the order multiple.
 - **Per-grade levels** — a grade that can be had in a week needs less than one
-  on a two-month lead time, so any grade can have its own minimum and maximum.
+  that is bought two months out, so any grade can have its own minimum and maximum.
   The Min / Max boxes on Material Forecast edit the same list; a grade without
   its own falls back to the site default.
 
@@ -190,7 +191,8 @@ only, the all-time average uses both.
   closed rather than showing zeros.
 - **Production Planning** — enter the month's board area and grammage; the app
   works out the paper, splits it across materials by their historical usage mix
-  (editable), and returns an order list: what to order, how much, and by when.
+  (editable). The page opens on the **order round** (below); the board plan
+  for each month sizes the round that buys it.
 
   The tonnage is `m² × g/m² ÷ 1000`, plus an optional waste allowance — board
   grammage being the weight of a square metre of finished board, all plies
@@ -200,13 +202,32 @@ only, the all-time average uses both.
   has weekdays, weekends are added one per week rather than bunched at one end;
   where fewer are agreed, weekdays are dropped the same way. Whichever is
   chosen, the month consumes exactly the planned tonnage — only the daily rate,
-  and so the timing of the orders, changes. Each material is then walked from today to the end of the plan
-  month: drawn at its current average until the month starts and at the planned
-  rate inside it, with existing open orders arriving on their dates. Whenever
-  the balance is about to fall below the **minimum**, an order is proposed
-  arriving that day, sized to bring stock back to **ideal** and rounded up to
-  the order multiple. Its order-by date is that arrival less the supplier lead
-  time; anything already inside the lead time is flagged to go out today.
+  and so the timing of the deliveries, changes. Save the plan for a month so
+  the round that buys it can use it.
+
+  **Order rounds.** Paper is ordered once a month, between the 10th and the
+  15th (Settings → Stock levels → Ordering). In each round, **recycled**
+  grades are ordered for the next month and **kraft** grades for the month
+  after: the October round buys November's recycled paper and December's
+  kraft. Kraft is every grade coded 1xxx, 2xxx, 5xxx or 8xxx; recycled is
+  everything else.
+
+  For each grade the round walks stock from today to the end of the month it
+  buys for. In a month with a saved board plan it draws at the planned rate
+  for that grade; otherwise at its 30-day average. Open orders arrive on their
+  dates, and overdue ones today. Inside the target month, whenever the
+  balance would fall below the grade's **minimum**, a delivery is proposed for
+  that day, sized back to **ideal** and rounded up to the order multiple. The
+  round lists one row per grade, with its total and its deliveries, and every
+  line is due by the round's last day.
+
+  A grade that runs below minimum *before* the target month is not this
+  round's to fix, because earlier rounds bought those months. It is listed
+  separately so an earlier delivery can be chased, and the target month starts
+  from no less than zero rather than ordering the gap twice. Where a target
+  month has no saved plan, the round says it is sized from usage. From a week
+  before the round opens until it closes, the Overview's **What needs doing**
+  shows how many recycled and kraft grades it covers.
 
   Quantities already on order are shown in blue and never ordered again. The
   **maximum** and **over-max** levels never cause an order — they warn, which
@@ -446,7 +467,7 @@ the window, which days counted as production days, the documents and the
 arithmetic. The header shows how old the data is, and any tab that decides
 something warns when the newest movement is more than two days back.
 
-The order plan exports to CSV and prints, since it is a list somebody acts on
+The order round exports to CSV and prints, since it is a list somebody acts on
 away from the screen. On a phone the materials table keeps the columns that
 answer "what is about to run out" and drops the rest.
 
